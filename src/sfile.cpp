@@ -132,7 +132,7 @@ struct ParsedLine {
   std::string error;
 };
 
-ParsedLine parse_line(std::string_view line) {
+ParsedLine parse_line(std::string_view line, bool data_started) {
   const auto tokens = split_tokens(line);
   if (tokens.empty()) {
     return {};
@@ -160,9 +160,8 @@ ParsedLine parse_line(std::string_view line) {
     return result;
   }
 
-  // A wholly numeric line is unambiguously a damaged data record. Once data
-  // have begun, a line beginning with a number is likewise treated as a
-  // malformed record instead of being silently retained as commentary.
+  // A wholly numeric line is unambiguously a damaged data record. A mixed line
+  // whose first token is itself a valid number is likewise treated as damaged.
   if (all_numeric) {
     ParsedLine result;
     result.kind = LineKind::MalformedData;
@@ -170,6 +169,9 @@ ParsedLine parse_line(std::string_view line) {
     return result;
   }
   if (parsed.front().numeric || has_numeric_prefix(tokens.front())) {
+    if (data_started && !parsed.front().numeric) {
+      return {};
+    }
     ParsedLine result;
     result.kind = LineKind::MalformedData;
     result.error = "invalid floating-point value in S-file data row";
@@ -227,7 +229,7 @@ void SFile::parse(const std::string& bytes) {
     }
     const std::string_view content(bytes.data() + offset,
                                    content_end - offset);
-    const auto parsed = parse_line(content);
+    const auto parsed = parse_line(content, data_started);
 
     if (parsed.kind == LineKind::Data) {
       data_started = true;
@@ -236,7 +238,8 @@ void SFile::parse(const std::string& bytes) {
       dx.push_back(parsed.values[2]);
       dy.push_back(parsed.values[3]);
     } else if (parsed.kind == LineKind::MalformedData) {
-      throw ParseError(parsed.error, filename_.string(), line_number, 1);
+      throw ParseError(parsed.error, detail::path_for_diagnostic(filename_),
+                       line_number, 1);
     } else if (!data_started && labels.size() < 3) {
       labels.emplace_back(content);
     } else {

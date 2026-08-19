@@ -1,4 +1,6 @@
 import gc
+import re
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -7,7 +9,22 @@ import eqmdsk
 
 
 def test_version():
-    assert eqmdsk.__version__ == "0.9.0"
+    project_root = Path(__file__).resolve().parents[2]
+    cmake_version = re.search(
+        r"project\(eqmdsk VERSION ([0-9]+\.[0-9]+\.[0-9]+)",
+        (project_root / "CMakeLists.txt").read_text(encoding="utf-8"),
+    ).group(1)
+    header_version = re.search(
+        r'#define EQMDSK_VERSION_STRING "([0-9]+\.[0-9]+\.[0-9]+)"',
+        (project_root / "include/eqmdsk/version.hpp").read_text(encoding="utf-8"),
+    ).group(1)
+    pyproject_version = re.search(
+        r'^version = "([0-9]+\.[0-9]+\.[0-9]+)"$',
+        (project_root / "pyproject.toml").read_text(encoding="utf-8"),
+        re.MULTILINE,
+    ).group(1)
+
+    assert eqmdsk.__version__ == cmake_version == header_version == pyproject_version
 
 
 def test_field_names_are_exact_and_case_sensitive():
@@ -50,4 +67,3 @@ def test_empty_cocos_result_preserves_no_match():
     assert not result.is_unique()
     with pytest.raises(eqmdsk.CocosError):
         _ = result.selected
-

@@ -1,6 +1,8 @@
 #include <cassert>
 #include <cstdint>
 #include <string>
+#include <type_traits>
+#include <utility>
 #include <vector>
 
 #include "eqmdsk/cocos.hpp"
@@ -8,6 +10,9 @@
 #include "eqmdsk/field.hpp"
 
 int main() {
+  static_assert(std::is_const_v<std::remove_reference_t<
+                decltype(*std::declval<eqmdsk::FieldMap&>().begin())>>);
+
   eqmdsk::FieldMap fields;
   fields.insert("NW", std::int64_t{65}, true);
   fields.insert("PSIRZ", eqmdsk::DoubleMatrix(eqmdsk::DoubleMatrix::Zero(3, 4)),

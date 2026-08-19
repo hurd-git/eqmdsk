@@ -104,6 +104,33 @@ def test_afile_control_numeric_header_and_line_variants(tmp_path):
     afile.write(output)
     assert eqmdsk.AFile(output)["TIME"] == 1.0
 
+    # Historical files can damage only the redundant F8.3 control TIME.  The
+    # valid third header record remains an unambiguous recovery source.
+    _synthetic_afile(source)
+    lines = source.read_bytes().splitlines()
+    lines[3] = b"*BADTIME!" + lines[3][9:]
+    source.write_bytes(b"\n".join(lines) + b"\n")
+    recovered = eqmdsk.AFile(source)
+    assert recovered["TIME"] == 1.0
+    recovered.write(output)
+    assert eqmdsk.AFile(output)["TIME"] == 1.0
+
+    # The whitespace fallback also permits an omitted TIME token.
+    _synthetic_afile(source)
+    lines = source.read_bytes().splitlines()
+    lines[3] = b"*1 0 LIM 3 1 QMF 0 0"
+    source.write_bytes(b"\n".join(lines) + b"\n")
+    assert eqmdsk.AFile(source)["TIME"] == 1.0
+
+    # OMFIT-compatible last resort when both redundant TIME copies are absent
+    # or malformed.
+    _synthetic_afile(source)
+    lines = source.read_bytes().splitlines()
+    lines[3] = b"*BADTIME!" + lines[3][9:]
+    del lines[2]
+    source.write_bytes(b"\n".join(lines) + b"\n")
+    assert eqmdsk.AFile(source)["TIME"] == 0.0
+
 
 def test_afile_all_optional_records_and_errors(tmp_path):
     source = tmp_path / "a.optional"

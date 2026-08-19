@@ -74,13 +74,23 @@ std::optional<Header> parse_header_line(std::string_view line,
   }
 
   // Whitespace-separated fallback. The final three tokens are IDUM, NW, NH.
-  std::istringstream stream{std::string(line)};
-  stream.imbue(std::locale::classic());
   std::vector<std::pair<std::string, std::size_t>> tokens;
-  std::string token;
-  while (stream >> token) {
-    const auto found = line.rfind(token);
-    tokens.emplace_back(token, found);
+  std::size_t position = 0;
+  const auto is_header_space = [](char value) noexcept {
+    return value == ' ' || value == '\t' || value == '\v' || value == '\f';
+  };
+  while (position < line.size()) {
+    while (position < line.size() && is_header_space(line[position])) {
+      ++position;
+    }
+    if (position == line.size()) {
+      break;
+    }
+    const auto begin = position;
+    while (position < line.size() && !is_header_space(line[position])) {
+      ++position;
+    }
+    tokens.emplace_back(std::string(line.substr(begin, position - begin)), begin);
   }
   if (tokens.size() < 3) {
     return std::nullopt;
@@ -89,6 +99,10 @@ std::optional<Header> parse_header_line(std::string_view line,
   const auto nw = parse_integer_text(tokens[tokens.size() - 2].first);
   const auto nh = parse_integer_text(tokens[tokens.size() - 1].first);
   if (!idum || !nw || !nh || *nw <= 0 || *nh <= 0) {
+    return std::nullopt;
+  }
+  if (*idum < std::numeric_limits<int>::min() ||
+      *idum > std::numeric_limits<int>::max()) {
     return std::nullopt;
   }
   Header result;
@@ -211,7 +225,8 @@ GFile::GFile(const std::filesystem::path& filename) : EFITFile(filename) {
 }
 
 void GFile::parse(const std::string& bytes) {
-  const auto header = find_header(bytes, filename_.string());
+  const auto diagnostic_filename = detail::path_for_diagnostic(filename_);
+  const auto header = find_header(bytes, diagnostic_filename);
   idum_ = header.idum;
   preamble_ = header.preamble;
   header_suffix_ = header.suffix;
@@ -223,10 +238,10 @@ void GFile::parse(const std::string& bytes) {
     nw = detail::checked_count(header.nw, "NW");
     nh = detail::checked_count(header.nh, "NH");
   } catch (const ValidationError& error) {
-    throw ParseError(error.what(), filename_.string(), 1, 1);
+    throw ParseError(error.what(), diagnostic_filename, 1, 1);
   }
   if (nw == 0 || nh == 0) {
-    throw ParseError("NW and NH must be positive", filename_.string(), 1, 1);
+    throw ParseError("NW and NH must be positive", diagnostic_filename, 1, 1);
   }
   original_nw_ = nw;
   original_nh_ = nh;
@@ -234,16 +249,16 @@ void GFile::parse(const std::string& bytes) {
   try {
     grid_size = detail::checked_product(nw, nh, "PSIRZ");
   } catch (const ValidationError& error) {
-    throw ParseError(error.what(), filename_.string(), 1, 1);
+    throw ParseError(error.what(), diagnostic_filename, 1, 1);
   }
   // A valid file needs at least 16 characters per value. This bounds hostile
   // dimensions before allocation without imposing an arbitrary grid limit.
   if (grid_size > bytes.size() || nw > bytes.size() || nh > bytes.size()) {
     throw ParseError("declared grid dimensions exceed the available file data",
-                     filename_.string(), 1, 1);
+                     diagnostic_filename, 1, 1);
   }
 
-  detail::NumericCursor cursor(bytes, header.body_offset, filename_.string());
+  detail::NumericCursor cursor(bytes, header.body_offset, diagnostic_filename);
   std::array<double, 20> scalars{};
   static constexpr std::array<const char*, 20> scalar_context{{
       "RDIM", "ZDIM", "RCENTR", "RLEFT", "ZMID", "RMAXIS", "ZMAXIS",
@@ -308,11 +323,11 @@ void GFile::parse(const std::string& bytes) {
     static_cast<void>(detail::checked_product(nbbbs, 2, "boundary"));
     static_cast<void>(detail::checked_product(limitr, 2, "limiter"));
   } catch (const ValidationError& error) {
-    throw ParseError(error.what(), filename_.string());
+    throw ParseError(error.what(), diagnostic_filename);
   }
   if (nbbbs > bytes.size() || limitr > bytes.size()) {
     throw ParseError("declared boundary size exceeds available file data",
-                     filename_.string());
+                     diagnostic_filename);
   }
   fields_.insert("NBBBS", nbbbs_raw, true, 20);
   fields_.insert("LIMITR", limitr_raw, true, 21);

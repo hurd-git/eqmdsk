@@ -333,9 +333,10 @@ AFile::AFile(const std::filesystem::path& filename) : EFITFile(filename) {
 }
 
 void AFile::parse(const std::string& bytes) {
+  const auto diagnostic_filename = detail::path_for_diagnostic(filename_);
   const auto lines = split_lines(bytes);
   if (lines.empty()) {
-    throw ParseError("empty A-file", filename_.string(), 1, 1);
+    throw ParseError("empty A-file", diagnostic_filename, 1, 1);
   }
 
   std::size_t control_index = lines.size();
@@ -347,31 +348,34 @@ void AFile::parse(const std::string& bytes) {
   }
   if (control_index == lines.size()) {
     throw ParseError("unable to locate the '*' A-file control record",
-                     filename_.string(), 1, 1);
+                     diagnostic_filename, 1, 1);
   }
   if (control_index < 2) {
     throw ParseError("A-file header must contain date and shot records",
-                     filename_.string(), lines[control_index].number, 1);
+                     diagnostic_filename, lines[control_index].number, 1);
   }
 
   header_ = bytes.substr(0, lines[control_index].begin);
   const auto& shot_line = lines[1];
   if (shot_line.text.size() < 7) {
     throw ParseError("A-file shot record is shorter than I7",
-                     filename_.string(), shot_line.number, 1);
+                     diagnostic_filename, shot_line.number, 1);
   }
   const auto shot = parse_integer(shot_line.text.substr(0, 7));
   if (!shot) {
-    throw ParseError("invalid SHOT in A-file header", filename_.string(),
+    throw ParseError("invalid SHOT in A-file header", diagnostic_filename,
                      shot_line.number, 1);
   }
   shot_field_offset_ = shot_line.begin;
   time_field_offset_ = std::string::npos;
+  std::optional<double> header_time;
   if (control_index >= 3) {
     const auto& header_time_line = lines[2];
-    if (header_time_line.text.size() >= 17 &&
-        parse_real(header_time_line.text.substr(1, 16))) {
-      time_field_offset_ = header_time_line.begin + 1;
+    if (header_time_line.text.size() >= 17) {
+      header_time = parse_real(header_time_line.text.substr(1, 16));
+      if (header_time) {
+        time_field_offset_ = header_time_line.begin + 1;
+      }
     }
   }
 
@@ -403,11 +407,13 @@ void AFile::parse(const std::string& bytes) {
     if (!parsed_nlnew && detail::trim_copy(control.text.substr(61, 5)).empty()) {
       parsed_nlnew = 0;
     }
-    fixed_control = parsed_time && parsed_jflag && parsed_lflag &&
-                    parsed_mco2v && parsed_mco2r && parsed_nlold &&
-                    parsed_nlnew;
+    fixed_control = parsed_jflag && parsed_lflag && parsed_mco2v &&
+                    parsed_mco2r && parsed_nlold && parsed_nlnew;
     if (fixed_control) {
-      time = *parsed_time;
+      // TIME is redundantly stored in the standard third header record.  Some
+      // historical writers damaged only the control-record copy, so recover
+      // from the header rather than rejecting otherwise usable data.
+      time = parsed_time.value_or(header_time.value_or(0.0));
       jflag = *parsed_jflag;
       lflag = *parsed_lflag;
       limloc = detail::trim_copy(control.text.substr(40, 3));
@@ -422,34 +428,34 @@ void AFile::parse(const std::string& bytes) {
   if (!fixed_control) {
     std::istringstream stream(std::string(control.text.substr(1)));
     stream.imbue(std::locale::classic());
-    std::string time_token;
-    std::string jflag_token;
-    std::string lflag_token;
-    std::string mco2v_token;
-    std::string mco2r_token;
-    std::string nlold_token;
-    std::string nlnew_token;
-    std::string extra;
-    if (!(stream >> time_token >> jflag_token >> lflag_token >> limloc >>
-          mco2v_token >> mco2r_token >> qmflag >> nlold_token >> nlnew_token) ||
-        (stream >> extra)) {
-      throw ParseError("invalid A-file control record", filename_.string(),
+    std::vector<std::string> tokens;
+    std::string token;
+    while (stream >> token) {
+      tokens.push_back(std::move(token));
+    }
+    if (tokens.size() != 8 && tokens.size() != 9) {
+      throw ParseError("invalid A-file control record", diagnostic_filename,
                        control.number, 1);
     }
-    const auto parsed_time = parse_real(time_token);
-    const auto parsed_jflag = parse_integer(jflag_token);
-    const auto parsed_lflag = parse_integer(lflag_token);
-    const auto parsed_mco2v = parse_integer(mco2v_token);
-    const auto parsed_mco2r = parse_integer(mco2r_token);
-    const auto parsed_nlold = parse_integer(nlold_token);
-    const auto parsed_nlnew = parse_integer(nlnew_token);
-    if (!parsed_time || !parsed_jflag || !parsed_lflag || !parsed_mco2v ||
-        !parsed_mco2r || !parsed_nlold || !parsed_nlnew ||
+    const bool has_time_token = tokens.size() == 9;
+    const std::size_t base = has_time_token ? 1 : 0;
+    const auto parsed_time =
+        has_time_token ? parse_real(tokens[0]) : std::optional<double>{};
+    const auto parsed_jflag = parse_integer(tokens[base]);
+    const auto parsed_lflag = parse_integer(tokens[base + 1]);
+    limloc = tokens[base + 2];
+    const auto parsed_mco2v = parse_integer(tokens[base + 3]);
+    const auto parsed_mco2r = parse_integer(tokens[base + 4]);
+    qmflag = tokens[base + 5];
+    const auto parsed_nlold = parse_integer(tokens[base + 6]);
+    const auto parsed_nlnew = parse_integer(tokens[base + 7]);
+    if (!parsed_jflag || !parsed_lflag || !parsed_mco2v || !parsed_mco2r ||
+        !parsed_nlold || !parsed_nlnew ||
         limloc.size() > 3 || qmflag.size() > 3) {
       throw ParseError("invalid value in A-file control record",
-                       filename_.string(), control.number, 1);
+                       diagnostic_filename, control.number, 1);
     }
-    time = *parsed_time;
+    time = parsed_time.value_or(header_time.value_or(0.0));
     jflag = *parsed_jflag;
     lflag = *parsed_lflag;
     mco2v_raw = *parsed_mco2v;
@@ -464,11 +470,11 @@ void AFile::parse(const std::string& bytes) {
     mco2v = detail::checked_count(mco2v_raw, "MCO2V");
     mco2r = detail::checked_count(mco2r_raw, "MCO2R");
   } catch (const ValidationError& error) {
-    throw ParseError(error.what(), filename_.string(), control.number, 1);
+    throw ParseError(error.what(), diagnostic_filename, control.number, 1);
   }
   if (mco2v > bytes.size() || mco2r > bytes.size()) {
     throw ParseError("A-file chord count exceeds available data",
-                     filename_.string(), control.number, 1);
+                     diagnostic_filename, control.number, 1);
   }
 
   control_line_ending_ = control.ending.empty() ? "\n" : control.ending;
@@ -489,7 +495,7 @@ void AFile::parse(const std::string& bytes) {
   auto next_line = [&](const std::string& context) -> const Line& {
     if (line_index >= lines.size()) {
       throw ParseError("unexpected end of file while reading " + context,
-                       filename_.string(),
+                       diagnostic_filename,
                        lines.empty() ? 1 : lines.back().number, 1);
     }
     return lines[line_index++];
@@ -497,7 +503,7 @@ void AFile::parse(const std::string& bytes) {
 
   for (const auto& names : kInitialRecords) {
     const auto values = require_real_record(next_line(names[0]),
-                                            filename_.string(), names[0]);
+                                            diagnostic_filename, names[0]);
     for (std::size_t index = 0; index < 4; ++index) {
       fields_.insert(names[index], values[index], true, order++);
     }
@@ -512,16 +518,16 @@ void AFile::parse(const std::string& bytes) {
       std::vector<double> chunk;
       bool parsed = false;
       if (expected < 4 &&
-          try_real_record(line, 4, filename_.string(), chunk)) {
+          try_real_record(line, 4, diagnostic_filename, chunk)) {
         chunk.resize(expected);
         parsed = true;
       } else {
-        parsed = try_real_record(line, expected, filename_.string(), chunk);
+        parsed = try_real_record(line, expected, diagnostic_filename, chunk);
       }
       if (!parsed) {
         throw ParseError("invalid A-file array record for " +
                              std::string(name),
-                         filename_.string(), line.number, 1);
+                         diagnostic_filename, line.number, 1);
       }
       values.insert(values.end(), chunk.begin(), chunk.end());
     }
@@ -535,7 +541,7 @@ void AFile::parse(const std::string& bytes) {
   for (std::size_t record = 0; record < kLaterRecords.size(); ++record) {
     const auto values = require_real_record(
         next_line(record == 5 ? "RSEPS" : kLaterRecords[record][0]),
-        filename_.string(),
+        diagnostic_filename,
         record == 5 ? "RSEPS/ZSEPS" : kLaterRecords[record][0]);
     if (record == 5) {
       DoubleVector rseps(2);
@@ -553,24 +559,24 @@ void AFile::parse(const std::string& bytes) {
   }
 
   const auto& count_line = next_line("A-file response counts");
-  const auto counts = require_integer_record(count_line, filename_.string());
+  const auto counts = require_integer_record(count_line, diagnostic_filename);
   std::array<std::size_t, 4> checked_counts{};
   for (std::size_t index = 0; index < counts.size(); ++index) {
     try {
       checked_counts[index] = detail::checked_count(counts[index],
                                                     kResponseArrays[index]);
     } catch (const ValidationError& error) {
-      throw ParseError(error.what(), filename_.string(), count_line.number, 1);
+      throw ParseError(error.what(), diagnostic_filename, count_line.number, 1);
     }
     if (checked_counts[index] > bytes.size()) {
       throw ParseError("A-file response count exceeds available data",
-                       filename_.string(), count_line.number, 1);
+                       diagnostic_filename, count_line.number, 1);
     }
   }
   if (checked_counts[0] >
       std::numeric_limits<std::size_t>::max() - checked_counts[1]) {
     throw ParseError("combined A-file response count overflows size_t",
-                     filename_.string(), count_line.number, 1);
+                     diagnostic_filename, count_line.number, 1);
   }
   fields_.insert("NSILOP0", counts[0], true, order++);
   fields_.insert("MAGPRI0", counts[1], true, order++);
@@ -586,15 +592,16 @@ void AFile::parse(const std::string& bytes) {
     const auto& line = next_line("CSILOP/CMPR2");
     std::vector<double> chunk;
     bool parsed = false;
-    if (expected < 4 && try_real_record(line, 4, filename_.string(), chunk)) {
+    if (expected < 4 &&
+        try_real_record(line, 4, diagnostic_filename, chunk)) {
       chunk.resize(expected);
       parsed = true;
     } else {
-      parsed = try_real_record(line, expected, filename_.string(), chunk);
+      parsed = try_real_record(line, expected, diagnostic_filename, chunk);
     }
     if (!parsed) {
       throw ParseError("invalid combined CSILOP/CMPR2 record",
-                       filename_.string(), line.number, 1);
+                       diagnostic_filename, line.number, 1);
     }
     combined.insert(combined.end(), chunk.begin(), chunk.end());
   }
@@ -616,7 +623,7 @@ void AFile::parse(const std::string& bytes) {
       break;
     }
     std::vector<double> values;
-    if (!try_real_record(lines[line_index], 4, filename_.string(), values)) {
+    if (!try_real_record(lines[line_index], 4, diagnostic_filename, values)) {
       break;
     }
     ++line_index;

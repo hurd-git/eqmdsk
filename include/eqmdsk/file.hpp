@@ -2,6 +2,7 @@
 
 #include <filesystem>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "eqmdsk/field.hpp"
@@ -20,8 +21,13 @@ class EFITFile {
     return raw_sections_;
   }
 
-  FieldValue& at(const std::string& name) { return fields_.at(name); }
-  const FieldValue& at(const std::string& name) const { return fields_.at(name); }
+  virtual bool contains(const std::string& name) const {
+    return fields_.contains(name);
+  }
+  virtual FieldValue& at(const std::string& name) { return fields_.at(name); }
+  virtual const FieldValue& at(const std::string& name) const {
+    return fields_.at(name);
+  }
   std::vector<std::string> keys() const { return fields_.keys(); }
 
   void write() const { write(filename_); }

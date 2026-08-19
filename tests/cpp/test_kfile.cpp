@@ -79,6 +79,9 @@ int main(int argc, char** argv) {
   assert(file.entry("input", "z").values().front().as_complex() ==
          std::complex<double>(1.0, -2.0));
   assert(file.contains("mixed"));
+  eqmdsk::EFITFile& base_file = file;
+  assert(base_file.contains("mixed"));
+  assert(std::get<std::int64_t>(base_file.at("mixed")) == 1);
   assert(!file.contains("nullable"));
   assert(!file.contains("typed"));
   assert(!file.contains("COMMENTED_OUT"));
@@ -121,6 +124,46 @@ int main(int argc, char** argv) {
   assert(reparsed.entry("input", "indexed").subscript() == "1:3");
   assert(reparsed.entry("input", "strange").values().front().as_raw() ==
          "foo(bar=>baz)");
+
+  const std::string null_comment_source =
+      "&IN\n VALUE=1\n SEMI=1; keep this comment\n/\n";
+  write_bytes(temporary, null_comment_source);
+  eqmdsk::KFile null_comment(temporary);
+  assert(std::get<std::int64_t>(null_comment.at("semi")) == 1);
+  std::get<std::int64_t>(null_comment.at("SEMI")) = 2;
+  null_comment.set("IN", "VALUE",
+                   {eqmdsk::NamelistValue::integer(7),
+                    eqmdsk::NamelistValue::null()});
+  null_comment.write(roundtrip);
+  const auto null_comment_output = read_bytes(roundtrip);
+  assert(null_comment_output.find("; keep this comment") != std::string::npos);
+  assert(null_comment_output.find("1*") != std::string::npos);
+  const eqmdsk::KFile null_comment_reparsed(roundtrip);
+  const auto& null_values =
+      null_comment_reparsed.entry("IN", "VALUE").values();
+  assert(null_values.size() == 2);
+  assert(null_values[0].as_integer() == 7);
+  assert(null_values[1].kind() == eqmdsk::NamelistValueKind::null);
+  assert(std::get<std::int64_t>(null_comment_reparsed.at("SEMI")) == 2);
+
+  const std::string budget_source =
+      "&IN\n"
+      " STRING_LIMIT=10000000*'x'\n"
+      " A=1 1\n"
+      " ELEMENT_LIMIT=10000000*1\n"
+      " DUP=10000000*'x'\n"
+      " DUP=2\n"
+      "/\n";
+  write_bytes(temporary, budget_source);
+  const eqmdsk::KFile budget(temporary);
+  assert(!budget.contains("STRING_LIMIT"));
+  assert(std::get<eqmdsk::IntVector>(budget.at("A")).size() == 2);
+  assert(!budget.contains("ELEMENT_LIMIT"));
+  assert(std::get<std::int64_t>(budget.at("DUP")) == 2);
+  assert(budget.entry("IN", "STRING_LIMIT").values()[0].repeat() ==
+         10000000);
+  budget.write(roundtrip);
+  assert(read_bytes(roundtrip) == budget_source);
 
   if (argc > 1 && std::filesystem::exists(argv[1])) {
     const eqmdsk::KFile real(argv[1]);

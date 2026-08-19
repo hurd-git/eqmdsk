@@ -2,6 +2,7 @@
 
 #include <Eigen/Core>
 
+#include <cstddef>
 #include <cstdint>
 #include <string>
 #include <unordered_map>
@@ -32,7 +33,9 @@ struct FieldEntry {
 class FieldMap {
  public:
   using Container = std::vector<FieldEntry>;
-  using iterator = Container::iterator;
+  // Iteration is read-only so callers cannot rename entries and invalidate
+  // the map's name-to-index invariant. Values remain mutable through at/set.
+  using iterator = Container::const_iterator;
   using const_iterator = Container::const_iterator;
 
   bool contains(const std::string& name) const noexcept;
@@ -41,7 +44,6 @@ class FieldMap {
 
   FieldValue& at(const std::string& name);
   const FieldValue& at(const std::string& name) const;
-  FieldEntry& entry(const std::string& name);
   const FieldEntry& entry(const std::string& name) const;
 
   void insert(std::string name, FieldValue value, bool standard = false,
@@ -52,8 +54,8 @@ class FieldMap {
 
   std::vector<std::string> keys() const;
 
-  iterator begin() noexcept { return entries_.begin(); }
-  iterator end() noexcept { return entries_.end(); }
+  iterator begin() noexcept { return entries_.cbegin(); }
+  iterator end() noexcept { return entries_.cend(); }
   const_iterator begin() const noexcept { return entries_.begin(); }
   const_iterator end() const noexcept { return entries_.end(); }
   const_iterator cbegin() const noexcept { return entries_.cbegin(); }
@@ -67,4 +69,3 @@ class FieldMap {
 const char* field_type_name(const FieldValue& value) noexcept;
 
 }  // namespace eqmdsk
-

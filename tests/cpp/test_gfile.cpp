@@ -6,6 +6,7 @@
 #include <fstream>
 #include <iomanip>
 #include <initializer_list>
+#include <limits>
 #include <locale>
 #include <sstream>
 #include <string>
@@ -89,6 +90,51 @@ int main() {
   eqmdsk::GFile synthetic_reparsed(synthetic_output);
   assert(close(get<double>(synthetic_reparsed, "CURRENT"), -1.0e100, 1e-9));
   assert(synthetic_reparsed.extension_tail() == synthetic.extension_tail());
+
+  const auto seed = synthetic_gfile();
+  const auto body = seed.substr(seed.find('\n') + 1);
+  write_bytes(synthetic_path, "REPEATED HEADER 2 3 2\n" + body);
+  const eqmdsk::GFile repeated_header(synthetic_path);
+  assert(get<std::string>(repeated_header, "CASE") == "REPEATED HEADER");
+
+  // 4294967299 wrapped to three before checked_count() on 32-bit platforms.
+  write_bytes(synthetic_path,
+              "OVERSIZED HEADER 0 4294967299 2\n" + body);
+  bool oversized_rejected = false;
+  try {
+    static_cast<void>(eqmdsk::GFile(synthetic_path));
+  } catch (const eqmdsk::ParseError&) {
+    oversized_rejected = true;
+  }
+  assert(oversized_rejected);
+
+  if constexpr (std::numeric_limits<int>::max() <
+                std::numeric_limits<std::int64_t>::max()) {
+    const auto oversized_idum =
+        static_cast<std::int64_t>(std::numeric_limits<int>::max()) + 1;
+    write_bytes(synthetic_path, "OVERSIZED IDUM " +
+                                    std::to_string(oversized_idum) +
+                                    " 3 2\n" + body);
+    bool idum_rejected = false;
+    try {
+      static_cast<void>(eqmdsk::GFile(synthetic_path));
+    } catch (const eqmdsk::ParseError&) {
+      idum_rejected = true;
+    }
+    assert(idum_rejected);
+  }
+
+  write_bytes(synthetic_path,
+              "OVERSIZED PRODUCT 0 3037000500 3037000500\n" + body);
+  bool product_rejected_for_eigen = false;
+  try {
+    static_cast<void>(eqmdsk::GFile(synthetic_path));
+  } catch (const eqmdsk::ParseError& error) {
+    product_rejected_for_eigen =
+        std::string(error.what()).find("Eigen index range") !=
+        std::string::npos;
+  }
+  assert(product_rejected_for_eigen);
   std::filesystem::remove(synthetic_path);
   std::filesystem::remove(synthetic_output);
 

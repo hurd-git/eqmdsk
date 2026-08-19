@@ -9,6 +9,11 @@
 
 namespace eqmdsk::detail {
 
+// Return a valid UTF-8 representation suitable for diagnostics on every
+// supported platform. Invalid byte sequences are replaced rather than passed
+// into language bindings unchanged.
+std::string path_for_diagnostic(const std::filesystem::path& path);
+
 std::string read_binary_file(const std::filesystem::path& path);
 void write_binary_file(const std::filesystem::path& path,
                        const std::string& bytes);

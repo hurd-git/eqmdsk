@@ -1,4 +1,5 @@
 import gc
+import os
 from pathlib import Path
 
 import numpy as np
@@ -67,6 +68,7 @@ def test_sfile_preserves_interstitial_text_at_relative_positions(tmp_path):
         b"x label\ny label\nfit title\n"
         b"1 10 0.1 1\n"
         b"COMMENT BETWEEN\r\n"
+        b"2024-run metadata\n"
         b"2 20 0.2 2\n"
         b"COMMENT AFTER\0OPAQUE",
     )
@@ -75,6 +77,7 @@ def test_sfile_preserves_interstitial_text_at_relative_positions(tmp_path):
     sfile = eqmdsk.SFile(source)
     assert [section.data for section in sfile.raw_sections] == [
         b"COMMENT BETWEEN\r\n",
+        b"2024-run metadata\n",
         b"COMMENT AFTER\0OPAQUE",
     ]
     sfile.write(target)
@@ -83,6 +86,7 @@ def test_sfile_preserves_interstitial_text_at_relative_positions(tmp_path):
     assert (
         output.index(b"1 10")
         < output.index(b"COMMENT BETWEEN")
+        < output.index(b"2024-run metadata")
         < output.index(b"2 20")
         < output.index(b"COMMENT AFTER")
     )
@@ -90,6 +94,7 @@ def test_sfile_preserves_interstitial_text_at_relative_positions(tmp_path):
     np.testing.assert_array_equal(reparsed["X"], sfile["X"])
     assert [section.data for section in reparsed.raw_sections] == [
         b"COMMENT BETWEEN\r\n",
+        b"2024-run metadata\n",
         b"COMMENT AFTER\0OPAQUE",
     ]
 
@@ -104,8 +109,51 @@ def test_sfile_preserves_interstitial_text_at_relative_positions(tmp_path):
 )
 def test_sfile_rejects_bad_data_columns(tmp_path, row):
     source = _write(tmp_path / "s.bad-columns", row)
-    with pytest.raises(eqmdsk.ParseError):
+    with pytest.raises(eqmdsk.ParseError) as caught:
         eqmdsk.SFile(source)
+    assert caught.value.filename == str(source)
+    assert caught.value.line == 1
+    assert caught.value.column == 1
+
+
+def test_sfile_rejects_strict_numeric_mixed_row_after_data(tmp_path):
+    source = _write(
+        tmp_path / "s.bad-row-after-data",
+        b"0 0 0 0\n1 damaged metadata\n",
+    )
+    with pytest.raises(eqmdsk.ParseError) as caught:
+        eqmdsk.SFile(source)
+    assert caught.value.line == 2
+    assert caught.value.column == 1
+
+
+def test_sfile_reports_unicode_diagnostic_paths(tmp_path):
+    source = _write(tmp_path / "s-坏文件-平衡", b"1 2 broken 4\n")
+    with pytest.raises(eqmdsk.ParseError) as caught:
+        eqmdsk.SFile(source)
+    assert caught.value.filename == str(source)
+    assert str(source) in str(caught.value)
+
+    missing = tmp_path / "s-不存在-平衡"
+    with pytest.raises(eqmdsk.IOError) as caught:
+        eqmdsk.SFile(missing)
+    assert str(missing) in str(caught.value)
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX byte paths only")
+def test_invalid_utf8_path_does_not_break_exception_translation(tmp_path):
+    source = tmp_path / os.fsdecode(b"s-invalid-\xff")
+    source.write_bytes(b"1 2 broken 4\n")
+
+    with pytest.raises(eqmdsk.ParseError) as caught:
+        eqmdsk.SFile(source)
+    assert "\ufffd" in caught.value.filename
+    assert "\ufffd" in str(caught.value)
+
+    missing = tmp_path / os.fsdecode(b"s-missing-\xff")
+    with pytest.raises(eqmdsk.IOError) as caught:
+        eqmdsk.SFile(missing)
+    assert "\ufffd" in str(caught.value)
 
 
 def test_sfile_max_digits_precision_roundtrip(tmp_path):
@@ -163,3 +211,11 @@ def test_sfile_validates_equal_lengths_and_finite_values(tmp_path):
     sfile["DY"][0] = np.inf
     with pytest.raises(eqmdsk.ValidationError):
         sfile.write(tmp_path / "nonfinite")
+
+
+@pytest.mark.skipif(not Path("/dev/full").exists(), reason="requires /dev/full")
+def test_sfile_reports_deferred_write_failure(tmp_path):
+    source = _write(tmp_path / "s.write-error", b"1 2 3 4\n")
+    sfile = eqmdsk.SFile(source)
+    with pytest.raises(eqmdsk.IOError):
+        sfile.write(Path("/dev/full"))

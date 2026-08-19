@@ -70,6 +70,12 @@ def test_ordered_namelist_types_and_exact_unmodified_write(tmp_path):
     assert first.entry("nullable").values[1].value is None
 
     assert kfile["MIXED"] == 1
+    assert kfile["mixed"] == 1
+    assert eqmdsk.EFITFile.__getitem__(kfile, "mixed") == 1
+    assert eqmdsk.EFITFile.__contains__(kfile, "mixed")
+    assert kfile.fields["MIXED"] == 1
+    with pytest.raises(eqmdsk.FieldError):
+        _ = kfile.fields["mixed"]
     assert kfile["DUP"] == 2
     assert kfile["FLAG"] is True
     assert kfile["SHORT_TRUE"] is True
@@ -152,6 +158,56 @@ def test_array_assignment_cannot_invalidate_an_existing_view(tmp_path):
     assert int_view.__array_interface__["data"][0] == int_pointer
     assert view[0] == 8.0
     assert int_view[2] == 3
+
+
+def test_null_and_attached_semicolon_comment_roundtrip(tmp_path):
+    source = tmp_path / "k.null-comment"
+    output = tmp_path / "k.null-comment.output"
+    source.write_bytes(b"&IN\n VALUE=1\n SEMI=1; keep this comment\n/\n")
+
+    kfile = eqmdsk.KFile(source)
+    assert kfile["SEMI"] == 1
+    kfile["SEMI"] = 2
+    kfile.set(
+        "IN",
+        "VALUE",
+        [eqmdsk.NamelistValue.integer(7), eqmdsk.NamelistValue.null()],
+    )
+    kfile.write(output)
+
+    data = output.read_bytes()
+    assert b"; keep this comment" in data
+    assert b"1*" in data
+    reparsed = eqmdsk.KFile(output)
+    assert reparsed["SEMI"] == 2
+    values = reparsed.entry("IN", "VALUE").values
+    assert len(values) == 2
+    assert values[0].as_integer() == 7
+    assert values[1].kind == eqmdsk.NamelistValueKind.null
+
+
+def test_projection_budgets_and_final_duplicate_prefilter(tmp_path):
+    source = tmp_path / "k.projection-budget"
+    output = tmp_path / "k.projection-budget.output"
+    source.write_bytes(
+        b"&IN\n"
+        b" STRING_LIMIT=10000000*'x'\n"
+        b" A=1 1\n"
+        b" ELEMENT_LIMIT=10000000*1\n"
+        b" DUP=10000000*'x'\n"
+        b" DUP=2\n"
+        b"/\n"
+    )
+
+    kfile = eqmdsk.KFile(source)
+    np.testing.assert_array_equal(kfile["A"], [1, 1])
+    assert "ELEMENT_LIMIT" not in kfile
+    assert kfile["DUP"] == 2
+    assert "STRING_LIMIT" not in kfile
+    assert kfile.entry("IN", "STRING_LIMIT").values[0].repeat == 10_000_000
+
+    kfile.write(output)
+    assert output.read_bytes() == source.read_bytes()
 
 
 def test_kfile_default_write_uses_exact_source_path(tmp_path):

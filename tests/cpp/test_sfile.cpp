@@ -106,30 +106,35 @@ void test_interstitial_text_and_roundtrip(
       "x label\ny label\nfit title\n"
       "1 10 0.1 1\n"
       "COMMENT BETWEEN\r\n"
+      "2024-run metadata\n"
       "2 20 0.2 2\n";
   constexpr char opaque_tail[] = "COMMENT AFTER\0OPAQUE";
   source_bytes.append(opaque_tail, sizeof(opaque_tail) - 1);
   write_bytes(source, source_bytes);
 
   const eqmdsk::SFile original(source);
-  assert(original.raw_sections().size() == 2);
+  assert(original.raw_sections().size() == 3);
   assert(original.raw_sections()[0].name == "extra_text");
   assert(original.raw_sections()[0].data == "COMMENT BETWEEN\r\n");
-  assert(original.raw_sections()[1].data ==
+  assert(original.raw_sections()[1].data == "2024-run metadata\n");
+  assert(original.raw_sections()[2].data ==
          std::string(opaque_tail, sizeof(opaque_tail) - 1));
   original.write(target);
 
   const auto output = read_bytes(target);
   const auto first_row = output.find("1 10");
   const auto between = output.find("COMMENT BETWEEN");
+  const auto numeric_text = output.find("2024-run metadata");
   const auto second_row = output.find("2 20");
   const auto after = output.find("COMMENT AFTER");
-  assert(first_row < between && between < second_row && second_row < after);
+  assert(first_row < between && between < numeric_text &&
+         numeric_text < second_row && second_row < after);
 
   const eqmdsk::SFile reparsed(target);
-  assert(reparsed.raw_sections().size() == 2);
+  assert(reparsed.raw_sections().size() == 3);
   assert(reparsed.raw_sections()[0].data == "COMMENT BETWEEN\r\n");
-  assert(reparsed.raw_sections()[1].data ==
+  assert(reparsed.raw_sections()[1].data == "2024-run metadata\n");
+  assert(reparsed.raw_sections()[2].data ==
          std::string(opaque_tail, sizeof(opaque_tail) - 1));
   assert(vector(reparsed, "X")[1] == 2.0);
   assert(vector(reparsed, "Y")[0] == 10.0);
@@ -139,13 +144,45 @@ void test_bad_columns(const std::filesystem::path& directory) {
   const auto three = directory / "s-three-columns";
   const auto five = directory / "s-five-columns";
   const auto mixed = directory / "s-invalid-column";
+  const auto mixed_after_data = directory / "s-invalid-after-data";
   write_bytes(three, "1 2 3\n");
   write_bytes(five, "1 2 3 4 5\n");
   write_bytes(mixed, "1 2 broken 4\n");
+  write_bytes(mixed_after_data, "0 0 0 0\n1 damaged metadata\n");
 
   assert_throws<eqmdsk::ParseError>([&] { eqmdsk::SFile file(three); });
   assert_throws<eqmdsk::ParseError>([&] { eqmdsk::SFile file(five); });
   assert_throws<eqmdsk::ParseError>([&] { eqmdsk::SFile file(mixed); });
+  assert_throws<eqmdsk::ParseError>(
+      [&] { eqmdsk::SFile file(mixed_after_data); });
+}
+
+void test_utf8_diagnostic_paths(const std::filesystem::path& directory) {
+  const std::string unicode_name =
+      "s-\xe5\x9d\x8f\xe6\x96\x87\xe4\xbb\xb6-\xe5\xb9\xb3\xe8\xa1\xa1";
+  const auto bad = directory / std::filesystem::u8path(unicode_name);
+  write_bytes(bad, "1 2 broken 4\n");
+
+  bool saw_parse_error = false;
+  try {
+    const eqmdsk::SFile file(bad);
+  } catch (const eqmdsk::ParseError& error) {
+    saw_parse_error = true;
+    assert(error.filename().find(unicode_name) != std::string::npos);
+    assert(std::string(error.what()).find(unicode_name) != std::string::npos);
+  }
+  assert(saw_parse_error);
+
+  const auto missing =
+      directory / std::filesystem::u8path(unicode_name + "-missing");
+  bool saw_io_error = false;
+  try {
+    const eqmdsk::SFile file(missing);
+  } catch (const eqmdsk::IOError& error) {
+    saw_io_error = true;
+    assert(std::string(error.what()).find(unicode_name) != std::string::npos);
+  }
+  assert(saw_io_error);
 }
 
 void test_precision_modification_and_default_write(
@@ -200,6 +237,17 @@ void test_write_validation(const std::filesystem::path& directory) {
   }
 }
 
+void test_deferred_write_failure(const std::filesystem::path& directory) {
+  const std::filesystem::path full_device("/dev/full");
+  if (!std::filesystem::exists(full_device)) {
+    return;
+  }
+  const auto source = directory / "s-write-error";
+  write_bytes(source, "1 2 3 4\n");
+  const eqmdsk::SFile file(source);
+  assert_throws<eqmdsk::IOError>([&] { file.write(full_device); });
+}
+
 }  // namespace
 
 int main() {
@@ -208,6 +256,8 @@ int main() {
   test_three_titles_and_fortran_exponents(temporary.path());
   test_interstitial_text_and_roundtrip(temporary.path());
   test_bad_columns(temporary.path());
+  test_utf8_diagnostic_paths(temporary.path());
   test_precision_modification_and_default_write(temporary.path());
   test_write_validation(temporary.path());
+  test_deferred_write_failure(temporary.path());
 }

@@ -12,6 +12,7 @@
 #include <optional>
 #include <sstream>
 #include <string_view>
+#include <unordered_map>
 #include <utility>
 
 #include "detail/fortran.hpp"
@@ -122,8 +123,8 @@ std::pair<std::size_t, std::size_t> line_and_column(
                                 std::string_view text,
                                 std::size_t position) {
   const auto location = line_and_column(text, position);
-  throw ParseError(message, filename.string(), location.first,
-                   location.second);
+  throw ParseError(message, detail::path_for_diagnostic(filename),
+                   location.first, location.second);
 }
 
 struct GroupStart {
@@ -477,8 +478,7 @@ ParsedToken parse_scalar(std::string_view text, std::size_t begin,
 
   auto end = begin;
   while (end < text.size() && !is_space(text[end]) && text[end] != ',' &&
-         text[end] != '!' &&
-         !(text[end] == '#' && line_comment_start(text, end))) {
+         !line_comment_start(text, end)) {
     ++end;
   }
   const auto token = text.substr(begin, end - begin);
@@ -738,6 +738,7 @@ bool assign_preserving_array_storage(FieldValue& target,
 }
 
 constexpr std::size_t kMaximumExpandedValues = 10000000;
+constexpr std::size_t kMaximumExpandedStringBytes = 64 * 1024 * 1024;
 
 std::size_t field_element_count(const FieldValue& field) {
   return std::visit(
@@ -756,9 +757,39 @@ std::size_t field_element_count(const FieldValue& field) {
       field);
 }
 
+std::size_t field_string_storage_bytes(const FieldValue& field) noexcept {
+  return std::visit(
+      [](const auto& value) -> std::size_t {
+        using T = std::decay_t<decltype(value)>;
+        if constexpr (std::is_same_v<T, std::string>) {
+          if (value.size() > std::numeric_limits<std::size_t>::max() -
+                                 sizeof(std::string)) {
+            return std::numeric_limits<std::size_t>::max();
+          }
+          return sizeof(std::string) + value.size();
+        } else if constexpr (std::is_same_v<T, StringVector>) {
+          std::size_t total = 0;
+          for (const auto& item : value) {
+            const auto remaining =
+                std::numeric_limits<std::size_t>::max() - total;
+            if (item.size() > remaining ||
+                sizeof(std::string) > remaining - item.size()) {
+              return std::numeric_limits<std::size_t>::max();
+            }
+            total += sizeof(std::string) + item.size();
+          }
+          return total;
+        } else {
+          return 0;
+        }
+      },
+      field);
+}
+
 std::optional<FieldValue> field_from_entry(
     const NamelistEntry& entry,
-    std::size_t maximum_expanded_values = kMaximumExpandedValues) {
+    std::size_t maximum_expanded_values = kMaximumExpandedValues,
+    std::size_t maximum_string_bytes = kMaximumExpandedStringBytes) {
   if (!entry.subscript().empty() || entry.values().empty()) {
     return std::nullopt;
   }
@@ -784,6 +815,24 @@ std::optional<FieldValue> field_from_entry(
                    value.kind() == NamelistValueKind::real);
     all_string = all_string && value.kind() == NamelistValueKind::string;
     all_logical = all_logical && value.kind() == NamelistValueKind::logical;
+  }
+
+  if (all_string) {
+    std::size_t projected_bytes = 0;
+    for (const auto& value : entry.values()) {
+      const auto& item = value.as_string();
+      if (item.size() > std::numeric_limits<std::size_t>::max() -
+                            sizeof(std::string)) {
+        return std::nullopt;
+      }
+      const auto bytes_per_item = sizeof(std::string) + item.size();
+      if (value.repeat() != 0 &&
+          bytes_per_item >
+              (maximum_string_bytes - projected_bytes) / value.repeat()) {
+        return std::nullopt;
+      }
+      projected_bytes += bytes_per_item * value.repeat();
+    }
   }
 
   if (count == 1 && entry.values().size() == 1 &&
@@ -870,6 +919,12 @@ std::string quote_string(const std::string& value) {
 }
 
 std::string serialize_value(const NamelistValue& value) {
+  if (value.kind() == NamelistValueKind::null) {
+    // An empty final token is indistinguishable from an ordinary trailing
+    // separator.  The explicit repetition spelling is unambiguous even for a
+    // single null value.
+    return std::to_string(value.repeat()) + "*";
+  }
   std::string result;
   if (value.repeat() != 1) {
     result += std::to_string(value.repeat());
@@ -877,7 +932,7 @@ std::string serialize_value(const NamelistValue& value) {
   }
   switch (value.kind()) {
     case NamelistValueKind::null:
-      break;
+      break;  // Handled above to retain a trailing/single null value.
     case NamelistValueKind::integer:
       result += std::to_string(value.as_integer());
       break;
@@ -1162,63 +1217,78 @@ void KFile::parse(const std::string& bytes) {
 void KFile::rebuild_fields() {
   fields_.clear();
   field_targets_.clear();
-  std::size_t expanded_total = 0;
+
+  // Determine the effective (last) assignment for every name before expanding
+  // repetitions.  This prevents a chain of duplicate assignments from
+  // repeatedly allocating large temporary vectors that are immediately
+  // discarded.  The ordered section/entry model remains untouched.
+  std::vector<std::pair<std::string, FieldTarget>> effective_targets;
+  std::unordered_map<std::string, std::size_t> effective_indices;
   for (std::size_t section_index = 0; section_index < sections_.size();
        ++section_index) {
-      const auto& section = sections_[section_index];
+    const auto& section = sections_[section_index];
     for (std::size_t entry_index = 0; entry_index < section.entries_.size();
          ++entry_index) {
-      const auto& entry = section.entries_[entry_index];
-      const auto previous_count = fields_.contains(entry.name())
-                                      ? field_element_count(fields_.at(entry.name()))
-                                      : 0;
-      const auto available = kMaximumExpandedValues -
-                             (expanded_total - previous_count);
-      const auto value = field_from_entry(entry, available);
-      auto target = std::find_if(
-          field_targets_.begin(), field_targets_.end(),
-          [&](const auto& item) { return item.first == entry.name(); });
-      if (!value) {
-        fields_.erase(entry.name());
-        expanded_total -= previous_count;
-        if (target != field_targets_.end()) {
-          field_targets_.erase(target);
-        }
-        continue;
-      }
-      if (fields_.contains(entry.name())) {
-        fields_.set(entry.name(), *value);
-        target->second = FieldTarget{section_index, entry_index};
+      const auto& name = section.entries_[entry_index].name();
+      const auto [position, inserted] =
+          effective_indices.emplace(name, effective_targets.size());
+      if (inserted) {
+        effective_targets.push_back(
+            {name, FieldTarget{section_index, entry_index}});
       } else {
-        fields_.insert(entry.name(), *value, false, fields_.size());
-        field_targets_.push_back(
-            {entry.name(), FieldTarget{section_index, entry_index}});
+        effective_targets[position->second].second =
+            FieldTarget{section_index, entry_index};
       }
-      expanded_total = expanded_total - previous_count +
-                       field_element_count(*value);
     }
+  }
+
+  std::size_t expanded_total = 0;
+  std::size_t string_bytes_total = 0;
+  for (const auto& item : effective_targets) {
+    const auto& target = item.second;
+    const auto& entry = sections_[target.section].entries_[target.entry];
+    const auto available_values = kMaximumExpandedValues - expanded_total;
+    const auto available_string_bytes =
+        kMaximumExpandedStringBytes - string_bytes_total;
+    auto value = field_from_entry(entry, available_values,
+                                  available_string_bytes);
+    if (!value) {
+      continue;
+    }
+    expanded_total += field_element_count(*value);
+    string_bytes_total += field_string_storage_bytes(*value);
+    fields_.insert(item.first, std::move(*value), false, fields_.size());
+    field_targets_.push_back(item);
   }
 }
 
 void KFile::refresh_field(const std::string& name) {
   const auto normalized = ascii_upper(name);
-  std::optional<FieldValue> value;
   FieldTarget target;
   bool found = false;
   std::size_t other_expanded = 0;
+  std::size_t other_string_bytes = 0;
   for (const auto& field : fields_) {
     if (field.name != normalized) {
       const auto count = field_element_count(field.value);
       if (count > kMaximumExpandedValues - other_expanded) {
         other_expanded = kMaximumExpandedValues;
-        break;
+      } else {
+        other_expanded += count;
       }
-      other_expanded += count;
+      const auto string_bytes = field_string_storage_bytes(field.value);
+      if (string_bytes >
+          kMaximumExpandedStringBytes - other_string_bytes) {
+        other_string_bytes = kMaximumExpandedStringBytes;
+      } else {
+        other_string_bytes += string_bytes;
+      }
     }
   }
-  const auto available = other_expanded >= kMaximumExpandedValues
-                             ? 0
-                             : kMaximumExpandedValues - other_expanded;
+  const auto available_values = kMaximumExpandedValues - other_expanded;
+  const auto available_string_bytes =
+      kMaximumExpandedStringBytes - other_string_bytes;
+  const NamelistEntry* effective_entry = nullptr;
   for (std::size_t section_index = 0; section_index < sections_.size();
        ++section_index) {
     const auto& section = sections_[section_index];
@@ -1229,10 +1299,13 @@ void KFile::refresh_field(const std::string& name) {
         continue;
       }
       found = true;
-      value = field_from_entry(item, available);
+      effective_entry = &item;
       target = FieldTarget{section_index, entry_index};
     }
   }
+  auto value = found ? field_from_entry(*effective_entry, available_values,
+                                        available_string_bytes)
+                     : std::optional<FieldValue>{};
 
   auto old_target = std::find_if(
       field_targets_.begin(), field_targets_.end(),
@@ -1247,10 +1320,10 @@ void KFile::refresh_field(const std::string& name) {
   if (fields_.contains(normalized)) {
     auto& current = fields_.at(normalized);
     if (!assign_preserving_array_storage(current, *value)) {
-      fields_.set(normalized, *value);
+      fields_.set(normalized, std::move(*value));
     }
   } else {
-    fields_.insert(normalized, *value, false, fields_.size());
+    fields_.insert(normalized, std::move(*value), false, fields_.size());
   }
   if (old_target == field_targets_.end()) {
     field_targets_.push_back({normalized, target});

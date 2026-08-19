@@ -131,6 +131,24 @@ int main() {
   const eqmdsk::AFile synthetic_reparsed(synthetic_output);
   assert(close_value(std::get<double>(synthetic_reparsed.at("CHISQ")),
                      -1.0e100));
+
+  auto damaged_time = synthetic_afile();
+  const auto control_offset = damaged_time.find('*');
+  assert(control_offset != std::string::npos);
+  damaged_time.replace(control_offset + 1, 8, "BADTIME!");
+  write_bytes(synthetic_path, damaged_time);
+  const eqmdsk::AFile recovered_time(synthetic_path);
+  assert(std::get<double>(recovered_time.at("TIME")) == 1.0);
+  recovered_time.write(synthetic_output);
+  assert(std::get<double>(eqmdsk::AFile(synthetic_output).at("TIME")) == 1.0);
+
+  const auto third_header_begin = damaged_time.find('\n',
+      damaged_time.find('\n') + 1) + 1;
+  const auto third_header_end = damaged_time.find('\n', third_header_begin) + 1;
+  damaged_time.erase(third_header_begin,
+                     third_header_end - third_header_begin);
+  write_bytes(synthetic_path, damaged_time);
+  assert(std::get<double>(eqmdsk::AFile(synthetic_path).at("TIME")) == 0.0);
   std::filesystem::remove(synthetic_path);
   std::filesystem::remove(synthetic_output);
 

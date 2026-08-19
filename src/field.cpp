@@ -8,14 +8,6 @@ bool FieldMap::contains(const std::string& name) const noexcept {
   return index_.find(name) != index_.end();
 }
 
-FieldEntry& FieldMap::entry(const std::string& name) {
-  const auto found = index_.find(name);
-  if (found == index_.end()) {
-    throw FieldError("unknown field: " + name);
-  }
-  return entries_[found->second];
-}
-
 const FieldEntry& FieldMap::entry(const std::string& name) const {
   const auto found = index_.find(name);
   if (found == index_.end()) {
@@ -24,7 +16,13 @@ const FieldEntry& FieldMap::entry(const std::string& name) const {
   return entries_[found->second];
 }
 
-FieldValue& FieldMap::at(const std::string& name) { return entry(name).value; }
+FieldValue& FieldMap::at(const std::string& name) {
+  const auto found = index_.find(name);
+  if (found == index_.end()) {
+    throw FieldError("unknown field: " + name);
+  }
+  return entries_[found->second].value;
+}
 
 const FieldValue& FieldMap::at(const std::string& name) const {
   return entry(name).value;
@@ -45,7 +43,7 @@ void FieldMap::insert(std::string name, FieldValue value, bool standard,
 }
 
 void FieldMap::set(const std::string& name, FieldValue value) {
-  entry(name).value = std::move(value);
+  at(name) = std::move(value);
 }
 
 bool FieldMap::erase(const std::string& name) {
@@ -99,4 +97,3 @@ const char* field_type_name(const FieldValue& value) noexcept {
 }
 
 }  // namespace eqmdsk
-

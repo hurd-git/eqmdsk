@@ -1,3 +1,4 @@
+import ctypes
 import gc
 from pathlib import Path
 
@@ -78,7 +79,7 @@ def test_gfile_numeric_header_and_line_ending_variants(tmp_path):
     gfile = eqmdsk.GFile(source)
     assert gfile["RDIM"] == 1.0
     assert gfile["ZDIM"] == 2.0
-    assert gfile.extra_header == "PREAMBLE\r\n SUFFIX"
+    assert gfile.extra_header == b"PREAMBLE\r\n SUFFIX"
     gfile.write(output)
     reparsed = eqmdsk.GFile(output)
     assert reparsed.extra_header == gfile.extra_header
@@ -92,6 +93,26 @@ def test_gfile_whitespace_header_zero_boundary_and_bad_sizes(tmp_path):
     _, body = data.split(b"\n", 1)
     source.write_bytes(b"WHITESPACE HEADER 0 3 2\n" + body)
     assert eqmdsk.GFile(source)["PSIRZ"].shape == (2, 3)
+
+    # Token offsets must be the positions of these occurrences, not rfind()
+    # results: IDUM deliberately has the same spelling as NH.
+    source.write_bytes(b"REPEATED HEADER 2 3 2\n" + body)
+    repeated = eqmdsk.GFile(source)
+    assert repeated["CASE"] == "REPEATED HEADER"
+
+    # On a 32-bit platform this value used to wrap to NW=3 before allocation.
+    source.write_bytes(b"OVERSIZED HEADER 0 4294967299 2\n" + body)
+    with pytest.raises(eqmdsk.ParseError):
+        eqmdsk.GFile(source)
+
+    oversized_idum = 1 << (ctypes.sizeof(ctypes.c_int) * 8 - 1)
+    source.write_bytes(f"OVERSIZED IDUM {oversized_idum} 3 2\n".encode() + body)
+    with pytest.raises(eqmdsk.ParseError):
+        eqmdsk.GFile(source)
+
+    source.write_bytes(b"OVERSIZED PRODUCT 0 3037000500 3037000500\n" + body)
+    with pytest.raises(eqmdsk.ParseError, match="Eigen index range"):
+        eqmdsk.GFile(source)
 
     _synthetic_gfile(source)
     data = source.read_bytes()

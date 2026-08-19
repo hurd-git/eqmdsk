@@ -28,6 +28,7 @@ namespace py = pybind11;
 namespace {
 
 PyObject* cocos_error_type = nullptr;
+PyObject* parse_error_type = nullptr;
 
 void translate_cocos_error(std::exception_ptr exception) {
   try {
@@ -40,6 +41,22 @@ void translate_cocos_error(std::exception_ptr exception) {
     py::object instance = type(py::str(error.what()));
     instance.attr("result") = py::cast(error.result());
     PyErr_SetObject(cocos_error_type, instance.ptr());
+  }
+}
+
+void translate_parse_error(std::exception_ptr exception) {
+  try {
+    if (exception) {
+      std::rethrow_exception(exception);
+    }
+  } catch (const eqmdsk::ParseError& error) {
+    py::gil_scoped_acquire acquire;
+    py::object type = py::reinterpret_borrow<py::object>(parse_error_type);
+    py::object instance = type(py::str(error.what()));
+    instance.attr("filename") = error.filename();
+    instance.attr("line") = error.line();
+    instance.attr("column") = error.column();
+    PyErr_SetObject(parse_error_type, instance.ptr());
   }
 }
 
@@ -154,7 +171,10 @@ PYBIND11_MODULE(_core, module) {
 
   auto error = py::register_exception<eqmdsk::Error>(module, "Error");
   py::register_exception<eqmdsk::IOError>(module, "IOError", error.ptr());
-  py::register_exception<eqmdsk::ParseError>(module, "ParseError", error.ptr());
+  auto parse_error = py::register_exception<eqmdsk::ParseError>(
+      module, "ParseError", error.ptr());
+  parse_error_type = parse_error.ptr();
+  py::register_local_exception_translator(&translate_parse_error);
   py::register_exception<eqmdsk::ValidationError>(module, "ValidationError",
                                                   error.ptr());
   py::register_exception<eqmdsk::FieldError>(module, "FieldError", error.ptr());
@@ -239,16 +259,16 @@ PYBIND11_MODULE(_core, module) {
       })
       .def("__contains__", [](const eqmdsk::EFITFile& self,
                               const std::string& name) {
-        return self.fields().contains(name);
+        return self.contains(name);
       })
       .def("__getitem__", [](eqmdsk::EFITFile& self, const std::string& name) {
-        return field_to_python(
-            self.fields(), name,
+        return field_value_to_python(
+            self.at(name),
             py::cast(&self, py::return_value_policy::reference));
       })
       .def("__setitem__", [](eqmdsk::EFITFile& self, const std::string& name,
                              py::handle value) {
-        assign_field(self.fields(), name, value);
+        assign_field_value(self.at(name), name, value);
       });
 
   py::class_<eqmdsk::GFile, eqmdsk::EFITFile>(module, "GFile")
@@ -275,7 +295,9 @@ PYBIND11_MODULE(_core, module) {
              return py::cast(self.converted_to_cocos(target));
            },
            py::arg("target"), py::arg("inplace") = true)
-      .def_property_readonly("extra_header", &eqmdsk::GFile::extra_header)
+      .def_property_readonly("extra_header", [](const eqmdsk::GFile& self) {
+        return py::bytes(self.extra_header());
+      })
       .def_property_readonly("extension_tail", [](const eqmdsk::GFile& self) {
         return py::bytes(self.extension_tail());
       });

@@ -1,7 +1,13 @@
 @PACKAGE_INIT@
 
 include(CMakeFindDependencyMacro)
-find_dependency(Eigen3)
+find_dependency(Eigen3 NO_MODULE)
+if(NOT DEFINED Eigen3_VERSION OR Eigen3_VERSION VERSION_LESS 3.4)
+  set(eqmdsk_FOUND FALSE)
+  set(eqmdsk_NOT_FOUND_MESSAGE
+    "eqmdsk requires Eigen >= 3.4; found ${Eigen3_VERSION}.")
+  return()
+endif()
 
 include("${CMAKE_CURRENT_LIST_DIR}/eqmdskTargets.cmake")
 check_required_components(eqmdsk)

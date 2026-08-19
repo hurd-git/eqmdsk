@@ -154,9 +154,9 @@ class KFile final : public EFITFile {
   // K-file variables are case-insensitive.  These helpers intentionally hide
   // EFITFile's case-sensitive convenience methods while retaining the same
   // return types for ordinary field access.
-  bool contains(const std::string& name) const;
-  FieldValue& at(const std::string& name);
-  const FieldValue& at(const std::string& name) const;
+  bool contains(const std::string& name) const override;
+  FieldValue& at(const std::string& name) override;
+  const FieldValue& at(const std::string& name) const override;
   std::vector<std::string> keys() const { return fields_.keys(); }
 
  private:
