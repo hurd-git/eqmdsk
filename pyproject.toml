@@ -1,0 +1,43 @@
+[build-system]
+requires = [
+  "scikit-build-core>=0.10",
+  "pybind11>=2.12",
+]
+build-backend = "scikit_build_core.build"
+
+[project]
+name = "eqmdsk"
+version = "0.9.0"
+description = "Lightweight, compatible EFIT G/A/K/S file I/O for C++ and Python"
+readme = "README.md"
+requires-python = ">=3.9"
+license = "MIT"
+authors = [{ name = "eqmdsk contributors" }]
+keywords = ["EFIT", "equilibrium", "GEQDSK", "EQDSK"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Programming Language :: C++",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Topic :: Scientific/Engineering :: Physics",
+]
+dependencies = ["numpy>=1.23"]
+
+[project.optional-dependencies]
+test = ["pytest>=8"]
+
+[tool.scikit-build]
+cmake.build-type = "Release"
+cmake.args = ["-DEQMDSK_BUILD_TESTS=OFF"]
+wheel.packages = ["python/eqmdsk"]
+sdist.exclude = [
+  ".venv",
+  "extern",
+  "build",
+  "dist",
+  ".pytest_cache",
+]
+
+[tool.pytest.ini_options]
+addopts = "-ra"
+testpaths = ["tests/python"]
