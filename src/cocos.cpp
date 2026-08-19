@@ -29,6 +29,9 @@ CocosResult::CocosResult(int selected, std::vector<int> candidates,
   }
 }
 
+CocosError::CocosError(std::string message, CocosResult result)
+    : Error(std::move(message)), result_(std::move(result)) {}
+
 bool CocosResult::is_unique() const noexcept {
   return selected_.has_value() && candidates_.size() == 1;
 }
@@ -45,4 +48,3 @@ int CocosResult::selected() const {
 }
 
 }  // namespace eqmdsk
-

@@ -10,7 +10,7 @@ option(EQMDSK_BUILD_TESTS "Build C++ tests" OFF)
 
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-find_package(Eigen3 3.3 QUIET NO_MODULE)
+find_package(Eigen3 QUIET NO_MODULE)
 if(NOT TARGET Eigen3::Eigen)
   if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/extern/eigen/Eigen/Core")
     add_library(Eigen3::Eigen INTERFACE IMPORTED GLOBAL)

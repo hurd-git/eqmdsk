@@ -29,5 +29,14 @@ class CocosResult {
   std::string diagnostic_;
 };
 
-}  // namespace eqmdsk
+class CocosError : public Error {
+ public:
+  explicit CocosError(std::string message, CocosResult result = {});
 
+  const CocosResult& result() const noexcept { return result_; }
+
+ private:
+  CocosResult result_;
+};
+
+}  // namespace eqmdsk

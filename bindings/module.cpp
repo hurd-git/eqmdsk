@@ -23,6 +23,22 @@ namespace py = pybind11;
 
 namespace {
 
+PyObject* cocos_error_type = nullptr;
+
+void translate_cocos_error(std::exception_ptr exception) {
+  try {
+    if (exception) {
+      std::rethrow_exception(exception);
+    }
+  } catch (const eqmdsk::CocosError& error) {
+    py::gil_scoped_acquire acquire;
+    py::object type = py::reinterpret_borrow<py::object>(cocos_error_type);
+    py::object instance = type(py::str(error.what()));
+    instance.attr("result") = py::cast(error.result());
+    PyErr_SetObject(cocos_error_type, instance.ptr());
+  }
+}
+
 template <typename EigenType>
 py::array eigen_view(EigenType& value, py::handle owner) {
   using Scalar = typename EigenType::Scalar;
@@ -112,7 +128,6 @@ PYBIND11_MODULE(_core, module) {
   py::register_exception<eqmdsk::ValidationError>(module, "ValidationError",
                                                   error.ptr());
   py::register_exception<eqmdsk::FieldError>(module, "FieldError", error.ptr());
-  py::register_exception<eqmdsk::CocosError>(module, "CocosError", error.ptr());
 
   py::class_<eqmdsk::CocosResult>(module, "CocosResult")
       .def(py::init<>())
@@ -129,6 +144,12 @@ PYBIND11_MODULE(_core, module) {
                py::repr(py::cast(result.diagnostic())).cast<std::string>() +
                ")";
       });
+
+  py::object cocos_error = py::reinterpret_steal<py::object>(PyErr_NewException(
+      "eqmdsk._core.CocosError", error.ptr(), nullptr));
+  module.attr("CocosError") = cocos_error;
+  cocos_error_type = cocos_error.ptr();
+  py::register_local_exception_translator(&translate_cocos_error);
 
   py::class_<eqmdsk::RawSection>(module, "RawSection")
       .def_property_readonly("name", [](const eqmdsk::RawSection& self) {

@@ -228,6 +228,8 @@ void GFile::parse(const std::string& bytes) {
   if (nw == 0 || nh == 0) {
     throw ParseError("NW and NH must be positive", filename_.string(), 1, 1);
   }
+  original_nw_ = nw;
+  original_nh_ = nh;
   std::size_t grid_size = 0;
   try {
     grid_size = detail::checked_product(nw, nh, "PSIRZ");
@@ -359,6 +361,12 @@ void GFile::validate_for_write() const {
   const auto limitr = detail::checked_count(limitr_value, "LIMITR");
   if (nw == 0 || nh == 0 || nw > 9999 || nh > 9999) {
     throw ValidationError("NW and NH must be in the range 1..9999");
+  }
+  if (!extension_tail_.empty() &&
+      (nw != original_nw_ || nh != original_nh_)) {
+    throw ValidationError(
+        "NW/NH cannot change while an opaque dimension-dependent extension "
+        "tail is present");
   }
   for (const auto* name : {"FPOL", "PRES", "FFPRIM", "PPRIME", "QPSI"}) {
     if (static_cast<std::size_t>(require<DoubleVector>(fields_, name).size()) !=
@@ -523,7 +531,8 @@ void GFile::select_cocos(int source) {
   const auto& candidates = cocos_.candidates();
   if (std::find(candidates.begin(), candidates.end(), source) ==
       candidates.end()) {
-    throw CocosError("selected source COCOS is not a detected candidate");
+    throw CocosError("selected source COCOS is not a detected candidate",
+                     cocos_);
   }
   cocos_ = CocosResult(source, {source}, "source COCOS explicitly selected");
 }
@@ -531,7 +540,7 @@ void GFile::select_cocos(int source) {
 GFile& GFile::to_cocos(int target) {
   const auto& destination = convention(target);
   if (!cocos_.is_unique()) {
-    throw CocosError("source COCOS is ambiguous or unknown");
+    throw CocosError("source COCOS is ambiguous or unknown", cocos_);
   }
   const auto& source = convention(cocos_.selected());
   if (source.number == destination.number) {
@@ -546,6 +555,17 @@ GFile& GFile::to_cocos(int target) {
                                          source.sigma_rhothetaphi);
   const double scale = std::pow(
       2.0 * std::acos(-1.0), destination.exp_bp - source.exp_bp);
+
+  // Validate every transformed field before mutating any of them.
+  static_cast<void>(require<double>(fields_, "CURRENT"));
+  static_cast<void>(require<double>(fields_, "BCENTR"));
+  static_cast<void>(require<DoubleVector>(fields_, "FPOL"));
+  static_cast<void>(require<double>(fields_, "SIMAG"));
+  static_cast<void>(require<double>(fields_, "SIBRY"));
+  static_cast<void>(require<DoubleMatrix>(fields_, "PSIRZ"));
+  static_cast<void>(require<DoubleVector>(fields_, "PPRIME"));
+  static_cast<void>(require<DoubleVector>(fields_, "FFPRIM"));
+  static_cast<void>(require<DoubleVector>(fields_, "QPSI"));
 
   multiply_scalar(fields_, "CURRENT", phi);
   multiply_scalar(fields_, "BCENTR", phi);

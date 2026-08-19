@@ -1,3 +1,4 @@
+import gc
 from pathlib import Path
 
 import numpy as np
@@ -96,10 +97,12 @@ def test_cocos_selection_copy_and_inplace(tmp_path):
     gfile = eqmdsk.GFile(source)
     assert gfile.cocos.candidates == [5, 6, 15, 16]
 
-    with pytest.raises(eqmdsk.CocosError):
+    with pytest.raises(eqmdsk.CocosError) as ambiguous:
         gfile.to_cocos(11)
-    with pytest.raises(eqmdsk.CocosError):
+    assert ambiguous.value.result.candidates == [5, 6, 15, 16]
+    with pytest.raises(eqmdsk.CocosError) as invalid_source:
         gfile.select_cocos(1)
+    assert invalid_source.value.result.candidates == [5, 6, 15, 16]
 
     gfile.select_cocos(5)
     converted = gfile.to_cocos(15, inplace=False)
@@ -122,3 +125,97 @@ def test_write_defaults_to_original_filename(tmp_path):
     gfile.write()
     assert eqmdsk.GFile(path)["CURRENT"] == 9.0
 
+
+def test_gfile_array_view_keeps_owner_alive(tmp_path):
+    path = tmp_path / "g"
+    _synthetic_gfile(path)
+    gfile = eqmdsk.GFile(path)
+    view = gfile["PSIRZ"]
+    pointer = view.__array_interface__["data"][0]
+
+    del gfile
+    gc.collect()
+
+    assert view[1, 2] == 202.0
+    assert view.__array_interface__["data"][0] == pointer
+    view[1, 2] = 303.0
+    assert view[1, 2] == 303.0
+
+
+def test_dimension_change_is_rejected_when_opaque_tail_exists(tmp_path):
+    path = tmp_path / "g"
+    target = tmp_path / "out"
+    _synthetic_gfile(path)
+    gfile = eqmdsk.GFile(path)
+    gfile["NW"] = 4
+    with pytest.raises(eqmdsk.ValidationError, match="extension tail"):
+        gfile.write(target)
+    assert not target.exists()
+
+
+def test_cocos_all_conventions_round_trip(tmp_path):
+    conventions = {
+        1: (1, 1),
+        2: (1, 1),
+        3: (-1, -1),
+        4: (-1, -1),
+        5: (1, -1),
+        6: (1, -1),
+        7: (-1, 1),
+        8: (-1, 1),
+        11: (1, 1),
+        12: (1, 1),
+        13: (-1, -1),
+        14: (-1, -1),
+        15: (1, -1),
+        16: (1, -1),
+        17: (-1, 1),
+        18: (-1, 1),
+    }
+    targets = tuple(conventions)
+
+    for source, (sigma_bp, sigma_rho) in conventions.items():
+        path = tmp_path / f"g-{source}"
+        _synthetic_gfile(path, tail=b"")
+        base = eqmdsk.GFile(path)
+        # CURRENT and QPSI are positive. Set field and flux signs to produce
+        # the source convention's two observable signs.
+        base["BCENTR"] = float(sigma_rho)
+        base["SIMAG"] = 0.0
+        base["SIBRY"] = float(sigma_bp)
+        base.write(path)
+        base = eqmdsk.GFile(path)
+        assert source in base.cocos.candidates
+        base.select_cocos(source)
+        baseline = {
+            name: np.array(base[name], copy=True)
+            for name in ("FPOL", "PPRIME", "FFPRIM", "PSIRZ", "QPSI")
+        }
+        baseline.update(
+            {name: base[name] for name in ("CURRENT", "BCENTR", "SIMAG", "SIBRY")}
+        )
+
+        for target in targets:
+            converted = base.to_cocos(target, inplace=False)
+            restored = converted.to_cocos(source, inplace=False)
+            assert restored.cocos.selected == source
+            for name, expected in baseline.items():
+                np.testing.assert_allclose(restored[name], expected, rtol=2e-15, atol=0)
+
+
+def test_cocos_unknown_and_invalid_q_are_diagnostic(tmp_path):
+    path = tmp_path / "g"
+    _synthetic_gfile(path, tail=b"")
+
+    gfile = eqmdsk.GFile(path)
+    gfile["QPSI"][:] = 0.0
+    gfile.write(path)
+    zero_q = eqmdsk.GFile(path)
+    assert len(zero_q.cocos.candidates) == 8
+    assert "QPSI" in zero_q.cocos.diagnostic
+
+    zero_q["QPSI"][:] = [1.0, -1.0, 1.0]
+    zero_q.write(path)
+    mixed_q = eqmdsk.GFile(path)
+    assert mixed_q.cocos.candidates == []
+    assert "mixed signs" in mixed_q.cocos.diagnostic

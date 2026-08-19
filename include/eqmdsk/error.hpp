@@ -40,10 +40,4 @@ class FieldError : public Error {
   using Error::Error;
 };
 
-class CocosError : public Error {
- public:
-  using Error::Error;
-};
-
 }  // namespace eqmdsk
-

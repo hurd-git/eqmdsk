@@ -34,6 +34,8 @@ class GFile final : public EFITFile {
   std::string header_suffix_;
   std::string extra_header_;
   std::string extension_tail_;
+  std::size_t original_nw_ = 0;
+  std::size_t original_nh_ = 0;
   CocosResult cocos_;
 };
 
