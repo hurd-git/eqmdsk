@@ -28,7 +28,10 @@ test = ["pytest>=8"]
 
 [tool.scikit-build]
 cmake.build-type = "Release"
-cmake.args = ["-DEQMDSK_BUILD_TESTS=OFF"]
+cmake.args = [
+  "-DEQMDSK_BUILD_TESTS=OFF",
+  "-DCMAKE_FIND_USE_PACKAGE_REGISTRY=OFF",
+]
 wheel.packages = ["python/eqmdsk"]
 sdist.exclude = [
   ".venv",

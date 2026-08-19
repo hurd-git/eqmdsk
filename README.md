@@ -11,7 +11,10 @@ The project is currently under active development toward version 0.9.0.
 
 Eigen and pybind11 may be provided in `extern/eigen` and `extern/pybind11` for
 local development. These third-party source trees are intentionally excluded
-from the project repository. System installations are also supported.
+from the project repository. System installations are also supported. Python
+package builds may fetch the pinned Eigen 5.0.1 release when neither source is
+available; C++-only builds require an explicit
+`-DEQMDSK_FETCH_DEPENDENCIES=ON` to enable network fetching.
 
 ```console
 uv venv --python 3.12
@@ -30,4 +33,3 @@ ctest --test-dir build --output-on-failure
 ## License
 
 MIT
-

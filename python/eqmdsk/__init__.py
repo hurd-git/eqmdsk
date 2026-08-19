@@ -10,6 +10,7 @@ from ._core import (
     GFile,
     IOError,
     ParseError,
+    SFile,
     ValidationError,
     __version__,
 )
@@ -24,6 +25,7 @@ __all__ = [
     "GFile",
     "IOError",
     "ParseError",
+    "SFile",
     "ValidationError",
     "__version__",
 ]

@@ -6,5 +6,5 @@
 #include "eqmdsk/file.hpp"
 #include "eqmdsk/gfile.hpp"
 #include "eqmdsk/raw_section.hpp"
+#include "eqmdsk/sfile.hpp"
 #include "eqmdsk/version.hpp"
-

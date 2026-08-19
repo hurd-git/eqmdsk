@@ -17,6 +17,7 @@
 #include "eqmdsk/file.hpp"
 #include "eqmdsk/gfile.hpp"
 #include "eqmdsk/raw_section.hpp"
+#include "eqmdsk/sfile.hpp"
 #include "eqmdsk/version.hpp"
 
 namespace py = pybind11;
@@ -248,4 +249,17 @@ PYBIND11_MODULE(_core, module) {
       .def_property_readonly("extension_tail", [](const eqmdsk::GFile& self) {
         return py::bytes(self.extension_tail());
       });
+
+  py::class_<eqmdsk::SFile, eqmdsk::EFITFile>(module, "SFile")
+      .def(py::init<const std::filesystem::path&>(), py::arg("filename"))
+      .def("write",
+           [](const eqmdsk::SFile& self,
+              const std::optional<std::filesystem::path>& path) {
+             if (path) {
+               self.write(*path);
+             } else {
+               self.write();
+             }
+           },
+           py::arg("path") = py::none());
 }

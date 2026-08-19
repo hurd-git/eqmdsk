@@ -7,6 +7,16 @@ include(CMakePackageConfigHelpers)
 
 option(EQMDSK_BUILD_PYTHON "Build the Python extension" ON)
 option(EQMDSK_BUILD_TESTS "Build C++ tests" OFF)
+if(SKBUILD)
+  set(_eqmdsk_fetch_default ON)
+else()
+  set(_eqmdsk_fetch_default OFF)
+endif()
+option(EQMDSK_FETCH_DEPENDENCIES
+  "Fetch missing build dependencies from pinned upstream releases"
+  ${_eqmdsk_fetch_default}
+)
+unset(_eqmdsk_fetch_default)
 
 set(CMAKE_CXX_EXTENSIONS OFF)
 
@@ -17,9 +27,31 @@ if(NOT TARGET Eigen3::Eigen)
     set_target_properties(Eigen3::Eigen PROPERTIES
       INTERFACE_INCLUDE_DIRECTORIES "${CMAKE_CURRENT_SOURCE_DIR}/extern/eigen"
     )
+  elseif(EQMDSK_FETCH_DEPENDENCIES)
+    include(FetchContent)
+    set(EIGEN_BUILD_BLAS OFF CACHE BOOL "" FORCE)
+    set(EIGEN_BUILD_LAPACK OFF CACHE BOOL "" FORCE)
+    set(EIGEN_BUILD_DOC OFF CACHE BOOL "" FORCE)
+    set(EIGEN_BUILD_TESTING OFF CACHE BOOL "" FORCE)
+    set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
+    FetchContent_Declare(eqmdsk_eigen
+      URL "https://gitlab.com/libeigen/eigen/-/archive/5.0.1/eigen-5.0.1.tar.gz"
+      URL_HASH
+        "SHA256=e9c326dc8c05cd1e044c71f30f1b2e34a6161a3b6ecf445d56b53ff1669e3dec"
+      DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+    )
+    FetchContent_GetProperties(eqmdsk_eigen)
+    if(NOT eqmdsk_eigen_POPULATED)
+      FetchContent_Populate(eqmdsk_eigen)
+    endif()
+    add_library(Eigen3::Eigen INTERFACE IMPORTED GLOBAL)
+    set_target_properties(Eigen3::Eigen PROPERTIES
+      INTERFACE_INCLUDE_DIRECTORIES "${eqmdsk_eigen_SOURCE_DIR}"
+    )
   else()
     message(FATAL_ERROR
-      "Eigen3 was not found. Install Eigen3 or provide extern/eigen.")
+      "Eigen3 was not found. Install Eigen3, provide extern/eigen, or set "
+      "EQMDSK_FETCH_DEPENDENCIES=ON.")
   endif()
 endif()
 
@@ -29,6 +61,7 @@ add_library(eqmdsk
   src/field.cpp
   src/fortran.cpp
   src/gfile.cpp
+  src/sfile.cpp
 )
 add_library(eqmdsk::eqmdsk ALIAS eqmdsk)
 
