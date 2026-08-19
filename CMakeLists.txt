@@ -52,6 +52,7 @@ else()
 endif()
 
 if(EQMDSK_BUILD_PYTHON)
+  set(PYBIND11_FINDPYTHON ON)
   find_package(pybind11 CONFIG QUIET)
   if(NOT TARGET pybind11::module)
     if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/extern/pybind11/CMakeLists.txt")
