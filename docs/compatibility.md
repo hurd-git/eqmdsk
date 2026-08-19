@@ -5,9 +5,9 @@
 | Component | Supported target | Locally verified for 0.9.0 |
 | --- | --- | --- |
 | C++ | C++17; GCC 11+, Clang 14+, AppleClang 14+, MSVC 2022 | GCC 13.3 |
-| CMake | 3.18+ | 3.28 |
+| CMake | 3.18+ | 3.18.4 and 3.28.3 |
 | Python | CPython 3.9–3.14 | CPython 3.9.25–3.14.6 on Linux |
-| NumPy | 1.23+ | 2.5.2 |
+| NumPy | 1.23+ | 2.0.2, 2.2.6, 2.4.6, and 2.5.2 |
 | Eigen | 3.4+ or pinned 5.0.1 fallback | 5.0.1 |
 | pybind11 | 2.12+ build dependency | 3.1.0 |
 | OS | Linux, macOS, Windows | Linux x86-64 |
