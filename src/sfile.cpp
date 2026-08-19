@@ -103,28 +103,10 @@ bool decimal_real_syntax(std::string_view token) noexcept {
 }
 
 ParsedToken parse_token(std::string_view token) {
-  std::string normalized(token);
-  for (char& value : normalized) {
-    if (value == 'D' || value == 'd') {
-      value = 'E';
-    }
-  }
-
-  errno = 0;
-  char* end = nullptr;
-  const double value = std::strtod(normalized.c_str(), &end);
-  if (end != normalized.c_str() + normalized.size()) {
-    return {};
-  }
-
   ParsedToken result;
-  result.numeric = true;
-  result.value = value;
-  // ERANGE with a non-zero result denotes a representable subnormal on common
-  // C libraries. Accept it so every finite double emitted by max_digits10 can
-  // be read back. Overflow and underflow-to-zero remain invalid.
-  result.valid = decimal_real_syntax(token) && std::isfinite(value) &&
-                 !(errno == ERANGE && value == 0.0);
+  result.numeric = decimal_real_syntax(token);
+  result.valid = result.numeric &&
+                 detail::parse_fortran_real(token, result.value);
   return result;
 }
 

@@ -56,11 +56,13 @@ if(NOT TARGET Eigen3::Eigen)
 endif()
 
 add_library(eqmdsk
+  src/afile.cpp
   src/cocos.cpp
   src/error.cpp
   src/field.cpp
   src/fortran.cpp
   src/gfile.cpp
+  src/kfile.cpp
   src/sfile.cpp
 )
 add_library(eqmdsk::eqmdsk ALIAS eqmdsk)

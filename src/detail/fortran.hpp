@@ -15,6 +15,12 @@ void write_binary_file(const std::filesystem::path& path,
 
 std::string trim_copy(std::string_view value);
 std::string rtrim_copy(std::string_view value);
+bool parse_fortran_real(std::string_view text, double& value);
+
+// Format one real using the EFIT/Fortran E16.9 convention. Exponents whose
+// magnitude needs three digits omit the `E` marker, as required to retain the
+// fixed 16-character field width (for example, -0.100000000+101).
+std::string format_e16_9(double value);
 
 class NumericCursor {
  public:
@@ -63,4 +69,3 @@ std::size_t checked_product(std::size_t left, std::size_t right,
 std::size_t checked_count(std::int64_t value, const std::string& field);
 
 }  // namespace eqmdsk::detail
-

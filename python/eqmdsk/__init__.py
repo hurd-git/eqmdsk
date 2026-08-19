@@ -1,6 +1,7 @@
 """Lightweight EFIT file I/O backed by C++."""
 
 from ._core import (
+    AFile,
     CocosError,
     CocosResult,
     Error,
@@ -10,12 +11,18 @@ from ._core import (
     GFile,
     IOError,
     ParseError,
+    KFile,
+    NamelistEntry,
+    NamelistSection,
+    NamelistValue,
+    NamelistValueKind,
     SFile,
     ValidationError,
     __version__,
 )
 
 __all__ = [
+    "AFile",
     "CocosError",
     "CocosResult",
     "Error",
@@ -25,6 +32,11 @@ __all__ = [
     "GFile",
     "IOError",
     "ParseError",
+    "KFile",
+    "NamelistEntry",
+    "NamelistSection",
+    "NamelistValue",
+    "NamelistValueKind",
     "SFile",
     "ValidationError",
     "__version__",

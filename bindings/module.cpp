@@ -1,3 +1,4 @@
+#include <pybind11/complex.h>
 #include <pybind11/eigen.h>
 #include <pybind11/numpy.h>
 #include <pybind11/pybind11.h>
@@ -11,11 +12,13 @@
 #include <type_traits>
 #include <utility>
 
+#include "eqmdsk/afile.hpp"
 #include "eqmdsk/cocos.hpp"
 #include "eqmdsk/error.hpp"
 #include "eqmdsk/field.hpp"
 #include "eqmdsk/file.hpp"
 #include "eqmdsk/gfile.hpp"
+#include "eqmdsk/kfile.hpp"
 #include "eqmdsk/raw_section.hpp"
 #include "eqmdsk/sfile.hpp"
 #include "eqmdsk/version.hpp"
@@ -59,9 +62,8 @@ py::array eigen_view(EigenType& value, py::handle owner) {
   }
 }
 
-py::object field_to_python(eqmdsk::FieldMap& fields, const std::string& name,
-                           py::handle owner) {
-  auto& value = fields.at(name);
+py::object field_value_to_python(eqmdsk::FieldValue& value,
+                                 py::handle owner) {
   return std::visit(
       [&](auto& item) -> py::object {
         using T = std::decay_t<decltype(item)>;
@@ -76,9 +78,13 @@ py::object field_to_python(eqmdsk::FieldMap& fields, const std::string& name,
       value);
 }
 
-void assign_field(eqmdsk::FieldMap& fields, const std::string& name,
-                  py::handle source) {
-  auto& value = fields.at(name);
+py::object field_to_python(eqmdsk::FieldMap& fields, const std::string& name,
+                           py::handle owner) {
+  return field_value_to_python(fields.at(name), owner);
+}
+
+void assign_field_value(eqmdsk::FieldValue& value, const std::string& name,
+                        py::handle source) {
   std::visit(
       [&](auto& item) {
         using T = std::decay_t<decltype(item)>;
@@ -94,7 +100,10 @@ void assign_field(eqmdsk::FieldMap& fields, const std::string& name,
           if (!array || array.ndim() != 2) {
             throw py::value_error(name + " requires a two-dimensional float64 array");
           }
-          item.resize(array.shape(0), array.shape(1));
+          if (array.shape(0) != item.rows() || array.shape(1) != item.cols()) {
+            throw py::value_error(
+                name + " assignment must preserve the existing array shape");
+          }
           std::copy_n(array.data(), array.size(), item.data());
         } else if constexpr (std::is_same_v<T, eqmdsk::DoubleVector>) {
           auto array = py::array_t<double, py::array::c_style |
@@ -102,7 +111,10 @@ void assign_field(eqmdsk::FieldMap& fields, const std::string& name,
           if (!array || array.ndim() != 1) {
             throw py::value_error(name + " requires a one-dimensional float64 array");
           }
-          item.resize(array.shape(0));
+          if (array.shape(0) != item.size()) {
+            throw py::value_error(
+                name + " assignment must preserve the existing array length");
+          }
           std::copy_n(array.data(), array.size(), item.data());
         } else if constexpr (std::is_same_v<T, eqmdsk::IntVector>) {
           auto array = py::array_t<std::int64_t, py::array::c_style |
@@ -110,11 +122,28 @@ void assign_field(eqmdsk::FieldMap& fields, const std::string& name,
           if (!array || array.ndim() != 1) {
             throw py::value_error(name + " requires a one-dimensional int64 array");
           }
-          item.resize(array.shape(0));
+          if (array.shape(0) != item.size()) {
+            throw py::value_error(
+                name + " assignment must preserve the existing array length");
+          }
           std::copy_n(array.data(), array.size(), item.data());
         }
       },
       value);
+}
+
+void assign_field(eqmdsk::FieldMap& fields, const std::string& name,
+                  py::handle source) {
+  assign_field_value(fields.at(name), name, source);
+}
+
+py::object namelist_value_to_python(const eqmdsk::NamelistValue& value) {
+  if (value.kind() == eqmdsk::NamelistValueKind::null) {
+    return py::none();
+  }
+  return std::visit(
+      [](const auto& item) -> py::object { return py::cast(item); },
+      value.storage());
 }
 
 }  // namespace
@@ -201,7 +230,8 @@ PYBIND11_MODULE(_core, module) {
                              py::overload_cast<>(&eqmdsk::EFITFile::fields),
                              py::return_value_policy::reference_internal)
       .def_property_readonly("raw_sections",
-                             py::overload_cast<>(&eqmdsk::EFITFile::raw_sections),
+                             py::overload_cast<>(
+                                 &eqmdsk::EFITFile::raw_sections, py::const_),
                              py::return_value_policy::reference_internal)
       .def("keys", &eqmdsk::EFITFile::keys)
       .def("__len__", [](const eqmdsk::EFITFile& self) {
@@ -248,6 +278,155 @@ PYBIND11_MODULE(_core, module) {
       .def_property_readonly("extra_header", &eqmdsk::GFile::extra_header)
       .def_property_readonly("extension_tail", [](const eqmdsk::GFile& self) {
         return py::bytes(self.extension_tail());
+      });
+
+  py::class_<eqmdsk::AFile, eqmdsk::EFITFile>(module, "AFile")
+      .def(py::init<const std::filesystem::path&>(), py::arg("filename"))
+      .def("write",
+           [](const eqmdsk::AFile& self,
+              const std::optional<std::filesystem::path>& path) {
+             if (path) {
+               self.write(*path);
+             } else {
+               self.write();
+             }
+           },
+           py::arg("path") = py::none())
+      .def_property_readonly("header", [](const eqmdsk::AFile& self) {
+        return py::bytes(self.header());
+      })
+      .def_property_readonly("footer", [](const eqmdsk::AFile& self) {
+        return py::bytes(self.footer());
+      })
+      .def_property_readonly("optional_record_count",
+                             &eqmdsk::AFile::optional_record_count);
+
+  py::enum_<eqmdsk::NamelistValueKind>(module, "NamelistValueKind")
+      .value("null", eqmdsk::NamelistValueKind::null)
+      .value("integer", eqmdsk::NamelistValueKind::integer)
+      .value("real", eqmdsk::NamelistValueKind::real)
+      .value("logical", eqmdsk::NamelistValueKind::logical)
+      .value("string", eqmdsk::NamelistValueKind::string)
+      .value("complex", eqmdsk::NamelistValueKind::complex)
+      .value("raw", eqmdsk::NamelistValueKind::raw);
+
+  py::class_<eqmdsk::NamelistValue>(module, "NamelistValue")
+      .def_static("null", &eqmdsk::NamelistValue::null,
+                  py::arg("repeat") = 1)
+      .def_static("integer", &eqmdsk::NamelistValue::integer,
+                  py::arg("value"), py::arg("repeat") = 1)
+      .def_static("real", &eqmdsk::NamelistValue::real,
+                  py::arg("value"), py::arg("repeat") = 1)
+      .def_static("logical", &eqmdsk::NamelistValue::logical,
+                  py::arg("value"), py::arg("repeat") = 1)
+      .def_static("string", &eqmdsk::NamelistValue::string,
+                  py::arg("value"), py::arg("repeat") = 1)
+      .def_static("complex", &eqmdsk::NamelistValue::complex,
+                  py::arg("value"), py::arg("repeat") = 1)
+      .def_static("raw", &eqmdsk::NamelistValue::raw,
+                  py::arg("value"), py::arg("repeat") = 1)
+      .def_property_readonly("kind", &eqmdsk::NamelistValue::kind)
+      .def_property_readonly("repeat", &eqmdsk::NamelistValue::repeat)
+      .def_property_readonly("value", &namelist_value_to_python)
+      .def_property_readonly("original_text",
+                             &eqmdsk::NamelistValue::original_text)
+      .def("as_integer", &eqmdsk::NamelistValue::as_integer)
+      .def("as_real", &eqmdsk::NamelistValue::as_real)
+      .def("as_logical", &eqmdsk::NamelistValue::as_logical)
+      .def("as_string", &eqmdsk::NamelistValue::as_string)
+      .def("as_complex", &eqmdsk::NamelistValue::as_complex)
+      .def("as_raw", &eqmdsk::NamelistValue::as_raw);
+
+  py::class_<eqmdsk::NamelistEntry>(module, "NamelistEntry")
+      .def_property_readonly("name", &eqmdsk::NamelistEntry::name)
+      .def_property_readonly("original_name",
+                             &eqmdsk::NamelistEntry::original_name)
+      .def_property_readonly("designator", &eqmdsk::NamelistEntry::designator)
+      .def_property_readonly("subscript", &eqmdsk::NamelistEntry::subscript)
+      .def_property_readonly("values", &eqmdsk::NamelistEntry::values)
+      .def_property_readonly("raw_text", [](const eqmdsk::NamelistEntry& self) {
+        return py::bytes(self.raw_text());
+      })
+      .def_property_readonly("source_order",
+                             &eqmdsk::NamelistEntry::source_order)
+      .def_property_readonly("source_offset",
+                             &eqmdsk::NamelistEntry::source_offset)
+      .def_property_readonly("parsed", &eqmdsk::NamelistEntry::parsed)
+      .def_property_readonly("modified", &eqmdsk::NamelistEntry::modified);
+
+  py::class_<eqmdsk::NamelistSection>(module, "NamelistSection")
+      .def_property_readonly("name", &eqmdsk::NamelistSection::name)
+      .def_property_readonly("original_name",
+                             &eqmdsk::NamelistSection::original_name)
+      .def_property_readonly("opener", [](const eqmdsk::NamelistSection& self) {
+        return std::string(1, self.opener());
+      })
+      .def_property_readonly("terminator",
+                             &eqmdsk::NamelistSection::terminator)
+      .def_property_readonly("entries", &eqmdsk::NamelistSection::entries)
+      .def_property_readonly("raw_text", [](const eqmdsk::NamelistSection& self) {
+        return py::bytes(self.raw_text());
+      })
+      .def_property_readonly("source_order",
+                             &eqmdsk::NamelistSection::source_order)
+      .def_property_readonly("source_offset",
+                             &eqmdsk::NamelistSection::source_offset)
+      .def("count", &eqmdsk::NamelistSection::count, py::arg("name"))
+      .def("entry", &eqmdsk::NamelistSection::entry, py::arg("name"),
+           py::arg("occurrence") = 0,
+           py::return_value_policy::reference_internal);
+
+  py::class_<eqmdsk::KFile, eqmdsk::EFITFile>(module, "KFile")
+      .def(py::init<const std::filesystem::path&>(), py::arg("filename"))
+      .def("write",
+           [](const eqmdsk::KFile& self,
+              const std::optional<std::filesystem::path>& path) {
+             if (path) {
+               self.write(*path);
+             } else {
+               self.write();
+             }
+           },
+           py::arg("path") = py::none())
+      .def_property_readonly("sections", &eqmdsk::KFile::sections)
+      .def("section_count", &eqmdsk::KFile::section_count, py::arg("name"))
+      .def("section", &eqmdsk::KFile::section, py::arg("name"),
+           py::arg("occurrence") = 0,
+           py::return_value_policy::reference_internal)
+      .def("entry", &eqmdsk::KFile::entry, py::arg("section_name"),
+           py::arg("name"), py::arg("occurrence") = 0,
+           py::arg("section_occurrence") = 0,
+           py::return_value_policy::reference_internal)
+      .def("set",
+           [](eqmdsk::KFile& self, const std::string& section_name,
+              const std::string& name,
+              std::vector<eqmdsk::NamelistValue> values,
+              std::size_t occurrence, std::size_t section_occurrence) {
+             if (self.contains(name)) {
+               const auto& current = self.at(name);
+               if (std::holds_alternative<eqmdsk::IntVector>(current) ||
+                   std::holds_alternative<eqmdsk::DoubleVector>(current) ||
+                   std::holds_alternative<eqmdsk::DoubleMatrix>(current)) {
+                 throw py::value_error(
+                     name +
+                     " is an exposed array; modify its NumPy view in place");
+               }
+             }
+             self.set(section_name, name, std::move(values), occurrence,
+                      section_occurrence);
+           },
+           py::arg("section_name"), py::arg("name"), py::arg("values"),
+           py::arg("occurrence") = 0, py::arg("section_occurrence") = 0)
+      .def("keys", &eqmdsk::KFile::keys)
+      .def("__contains__", &eqmdsk::KFile::contains)
+      .def("__getitem__", [](eqmdsk::KFile& self, const std::string& name) {
+        return field_value_to_python(
+            self.at(name),
+            py::cast(&self, py::return_value_policy::reference));
+      })
+      .def("__setitem__", [](eqmdsk::KFile& self, const std::string& name,
+                              py::handle value) {
+        assign_field_value(self.at(name), name, value);
       });
 
   py::class_<eqmdsk::SFile, eqmdsk::EFITFile>(module, "SFile")

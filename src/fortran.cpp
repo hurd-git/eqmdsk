@@ -4,6 +4,7 @@
 #include <charconv>
 #include <cmath>
 #include <cstdlib>
+#include <cstdint>
 #include <fstream>
 #include <iomanip>
 #include <limits>
@@ -46,7 +47,14 @@ std::string read_binary_file(const std::filesystem::path& path) {
   if (end < 0) {
     throw IOError("unable to determine file size: " + path.string());
   }
-  std::string bytes(static_cast<std::size_t>(end), '\0');
+  const auto length = static_cast<std::uintmax_t>(
+      static_cast<std::streamoff>(end));
+  if (length > std::numeric_limits<std::size_t>::max() ||
+      length > static_cast<std::uintmax_t>(
+                   std::numeric_limits<std::streamsize>::max())) {
+    throw IOError("file is too large to read into memory: " + path.string());
+  }
+  std::string bytes(static_cast<std::size_t>(length), '\0');
   input.seekg(0, std::ios::beg);
   if (!bytes.empty()) {
     input.read(bytes.data(), static_cast<std::streamsize>(bytes.size()));
@@ -59,6 +67,10 @@ std::string read_binary_file(const std::filesystem::path& path) {
 
 void write_binary_file(const std::filesystem::path& path,
                        const std::string& bytes) {
+  if (bytes.size() > static_cast<std::size_t>(
+                         std::numeric_limits<std::streamsize>::max())) {
+    throw IOError("file is too large to write: " + path.string());
+  }
   std::ofstream output(path, std::ios::binary | std::ios::trunc);
   if (!output) {
     throw IOError("unable to open file for writing: " + path.string());
@@ -93,6 +105,98 @@ std::string rtrim_copy(std::string_view value) {
     --last;
   }
   return std::string(value.substr(0, last));
+}
+
+bool parse_fortran_real(std::string_view text, double& value) {
+  auto token = trim_copy(text);
+  if (token.empty()) {
+    return false;
+  }
+  for (char& character : token) {
+    if (character == 'D' || character == 'd') {
+      character = 'E';
+    }
+  }
+  const auto decimal = token.find('.');
+  const auto exponent = token.find_first_of("Ee");
+  if (decimal != std::string::npos && exponent == std::string::npos) {
+    const auto sign = token.find_first_of("+-", decimal + 1);
+    if (sign != std::string::npos) {
+      token.insert(sign, "E");
+    }
+  }
+  if (!token.empty() && token.front() == '+') {
+    token.erase(token.begin());
+  }
+  if (token.empty()) {
+    return false;
+  }
+  const auto parsed = std::from_chars(token.data(), token.data() + token.size(),
+                                      value, std::chars_format::general);
+  return parsed.ec == std::errc{} &&
+         parsed.ptr == token.data() + token.size() && std::isfinite(value);
+}
+
+std::string format_e16_9(double value) {
+  if (!std::isfinite(value)) {
+    throw ValidationError("cannot write a non-finite floating-point value");
+  }
+
+  std::ostringstream normalized_stream;
+  normalized_stream.imbue(std::locale::classic());
+  normalized_stream << std::uppercase << std::scientific
+                    << std::setprecision(8) << value;
+  const auto normalized = normalized_stream.str();
+  const auto exponent_marker = normalized.find('E');
+  const auto decimal = normalized.find('.');
+  const auto first_digit = normalized.find_first_of("0123456789");
+  if (exponent_marker == std::string::npos || decimal == std::string::npos ||
+      first_digit == std::string::npos || decimal <= first_digit ||
+      exponent_marker <= decimal) {
+    throw ValidationError("unable to format floating-point value as E16.9");
+  }
+
+  std::string digits;
+  digits.reserve(9);
+  digits.push_back(normalized[first_digit]);
+  digits.append(normalized, decimal + 1,
+                std::min<std::size_t>(8, exponent_marker - decimal - 1));
+  digits.append(9 - digits.size(), '0');
+
+  int exponent = 0;
+  try {
+    exponent = std::stoi(normalized.substr(exponent_marker + 1));
+  } catch (...) {
+    throw ValidationError("unable to format floating-point exponent as E16.9");
+  }
+  if (value != 0.0) {
+    ++exponent;
+  }
+  const auto exponent_magnitude = std::abs(exponent);
+  if (exponent_magnitude > 999) {
+    throw ValidationError("floating-point exponent does not fit E16.9");
+  }
+
+  std::ostringstream suffix;
+  suffix.imbue(std::locale::classic());
+  if (exponent_magnitude <= 99) {
+    suffix << 'E' << (exponent < 0 ? '-' : '+') << std::setfill('0')
+           << std::setw(2) << exponent_magnitude;
+  } else {
+    suffix << (exponent < 0 ? '-' : '+') << std::setfill('0')
+           << std::setw(3) << exponent_magnitude;
+  }
+
+  std::string result;
+  result.reserve(16);
+  result.push_back(std::signbit(value) ? '-' : ' ');
+  result += "0.";
+  result += digits;
+  result += suffix.str();
+  if (result.size() != 16) {
+    throw ValidationError("floating-point value does not fit E16.9");
+  }
+  return result;
 }
 
 NumericCursor::NumericCursor(const std::string& input, std::size_t position,
@@ -209,33 +313,18 @@ std::string NumericCursor::next_number_token(const std::string& field,
 
 double NumericCursor::next_real(const std::string& field) {
   auto token = next_number_token(field, false);
-  for (char& value : token) {
-    if (value == 'D' || value == 'd') {
-      value = 'E';
-    }
-  }
-  // Restore an omitted E before a trailing signed exponent.
-  const auto decimal = token.find('.');
-  const auto exponent = token.find_first_of("Ee", decimal == std::string::npos
-                                                       ? 0
-                                                       : decimal);
-  if (decimal != std::string::npos && exponent == std::string::npos) {
-    const auto sign = token.find_first_of("+-", decimal + 1);
-    if (sign != std::string::npos) {
-      token.insert(sign, "E");
-    }
-  }
-  errno = 0;
-  char* end = nullptr;
-  const double value = std::strtod(token.c_str(), &end);
-  if (end != token.c_str() + token.size() || errno == ERANGE) {
+  double value = 0.0;
+  if (!parse_fortran_real(token, value)) {
     fail("invalid floating-point value", field);
   }
   return value;
 }
 
 std::int64_t NumericCursor::next_integer(const std::string& field) {
-  const auto token = next_number_token(field, true);
+  auto token = next_number_token(field, true);
+  if (!token.empty() && token.front() == '+') {
+    token.erase(token.begin());
+  }
   std::int64_t value = 0;
   const auto result =
       std::from_chars(token.data(), token.data() + token.size(), value);
@@ -256,18 +345,7 @@ std::vector<double> NumericCursor::real_array(std::size_t count,
 }
 
 void FortranRealWriter::value(double number) {
-  if (!std::isfinite(number)) {
-    throw ValidationError("cannot write a non-finite floating-point value");
-  }
-  std::ostringstream field;
-  field.imbue(std::locale::classic());
-  field << std::uppercase << std::scientific << std::setprecision(9)
-        << std::setw(16) << number;
-  const auto text = field.str();
-  if (text.size() > 16) {
-    throw ValidationError("floating-point value does not fit E16.9");
-  }
-  output_ += text;
+  output_ += format_e16_9(number);
   ++column_;
   if (column_ == 5) {
     output_ += '\n';
@@ -298,4 +376,3 @@ std::size_t checked_count(std::int64_t value, const std::string& field) {
 }
 
 }  // namespace eqmdsk::detail
-

@@ -362,6 +362,22 @@ void GFile::validate_for_write() const {
   if (nw == 0 || nh == 0 || nw > 9999 || nh > 9999) {
     throw ValidationError("NW and NH must be in the range 1..9999");
   }
+  if (nbbbs > 99999 || limitr > 99999) {
+    throw ValidationError("NBBBS and LIMITR must fit five-character fields");
+  }
+  if (idum_ < -999 || idum_ > 9999) {
+    throw ValidationError("GEQDSK IDUM must fit a four-character field");
+  }
+  const auto& case_text = require<std::string>(fields_, "CASE");
+  if (case_text.size() > 48) {
+    throw ValidationError("CASE must contain at most 48 bytes");
+  }
+  if (!std::all_of(case_text.begin(), case_text.end(),
+                   [](unsigned char character) {
+                     return character >= 0x20 && character <= 0x7e;
+                   })) {
+    throw ValidationError("CASE must contain printable ASCII");
+  }
   if (!extension_tail_.empty() &&
       (nw != original_nw_ || nh != original_nh_)) {
     throw ValidationError(
@@ -411,9 +427,6 @@ void GFile::write(const std::filesystem::path& path) const {
 
   std::string output = preamble_;
   auto case_text = require<std::string>(fields_, "CASE");
-  if (case_text.size() > 48) {
-    case_text.resize(48);
-  }
   output += case_text;
   output.append(48 - case_text.size(), ' ');
   std::ostringstream integers;

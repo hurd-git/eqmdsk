@@ -1,3 +1,4 @@
+import gc
 from pathlib import Path
 
 import numpy as np
@@ -25,6 +26,24 @@ def test_sfile_without_titles(tmp_path):
     np.testing.assert_array_equal(sfile["DX"], [0.1, 0.3])
     np.testing.assert_array_equal(sfile["DY"], [0.2, 0.4])
     assert not sfile.raw_sections
+
+
+def test_sfile_empty_and_titles_only(tmp_path):
+    empty = _write(tmp_path / "s.empty", b"")
+    sfile = eqmdsk.SFile(empty)
+    assert sfile["X"].shape == (0,)
+    sfile.write()
+    assert empty.read_bytes() == b""
+
+    titled = _write(tmp_path / "s.titled", b"x\ry\rtitle\r")
+    sfile = eqmdsk.SFile(titled)
+    assert sfile["XLABEL"] == "x"
+    assert sfile["YLABEL"] == "y"
+    assert sfile["TITLE"] == "title"
+    assert sfile["X"].shape == (0,)
+    output = tmp_path / "s.titled.output"
+    sfile.write(output)
+    assert eqmdsk.SFile(output)["TITLE"] == "title"
 
 
 def test_sfile_three_titles_and_fortran_exponents(tmp_path):
@@ -119,17 +138,26 @@ def test_sfile_arrays_are_writable_and_write_defaults_to_source(tmp_path):
     sfile = eqmdsk.SFile(source)
 
     assert sfile["Y"].flags.writeable
-    sfile["Y"][0] = 42.25
+    view = sfile["Y"]
+    assert view.dtype == np.float64
+    assert view.shape == (1,)
+    assert view.strides == (8,)
+    assert view.flags.c_contiguous
+    pointer = view.__array_interface__["data"][0]
+    view[0] = 42.25
     sfile.write()
     assert eqmdsk.SFile(source)["Y"][0] == 42.25
+    del sfile
+    gc.collect()
+    assert view.__array_interface__["data"][0] == pointer
+    assert view[0] == 42.25
 
 
 def test_sfile_validates_equal_lengths_and_finite_values(tmp_path):
     source = _write(tmp_path / "s.validation", b"1 2 3 4\n")
     sfile = eqmdsk.SFile(source)
-    sfile["DX"] = np.array([1.0, 2.0])
-    with pytest.raises(eqmdsk.ValidationError):
-        sfile.write(tmp_path / "unequal")
+    with pytest.raises(ValueError, match="preserve the existing array length"):
+        sfile["DX"] = np.array([1.0, 2.0])
 
     sfile = eqmdsk.SFile(source)
     sfile["DY"][0] = np.inf

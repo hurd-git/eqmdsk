@@ -16,7 +16,6 @@ class EFITFile {
   const std::filesystem::path& filename() const noexcept { return filename_; }
   FieldMap& fields() noexcept { return fields_; }
   const FieldMap& fields() const noexcept { return fields_; }
-  std::vector<RawSection>& raw_sections() noexcept { return raw_sections_; }
   const std::vector<RawSection>& raw_sections() const noexcept {
     return raw_sections_;
   }
@@ -39,4 +38,3 @@ class EFITFile {
 };
 
 }  // namespace eqmdsk
-

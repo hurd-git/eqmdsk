@@ -65,6 +65,68 @@ def test_synthetic_non_square_parse_write_parse(tmp_path):
     assert target.exists()
 
 
+def test_gfile_numeric_header_and_line_ending_variants(tmp_path):
+    source = tmp_path / "g.variants"
+    output = tmp_path / "g.variants.out"
+    _synthetic_gfile(source)
+    data = source.read_bytes()
+    data = data.replace(b"1.000000000E+00", b"1.000000000D+00", 1)
+    data = data.replace(b" 2.000000000E+00", b" 0.200000000+001", 1)
+    header, body = data.split(b"\n", 1)
+    source.write_bytes(b"PREAMBLE\r\n" + header + b" SUFFIX\r\n" + body.replace(b"\n", b"\r\n"))
+
+    gfile = eqmdsk.GFile(source)
+    assert gfile["RDIM"] == 1.0
+    assert gfile["ZDIM"] == 2.0
+    assert gfile.extra_header == "PREAMBLE\r\n SUFFIX"
+    gfile.write(output)
+    reparsed = eqmdsk.GFile(output)
+    assert reparsed.extra_header == gfile.extra_header
+    assert reparsed.extension_tail == gfile.extension_tail
+
+
+def test_gfile_whitespace_header_zero_boundary_and_bad_sizes(tmp_path):
+    source = tmp_path / "g.header"
+    _synthetic_gfile(source)
+    data = source.read_bytes()
+    _, body = data.split(b"\n", 1)
+    source.write_bytes(b"WHITESPACE HEADER 0 3 2\n" + body)
+    assert eqmdsk.GFile(source)["PSIRZ"].shape == (2, 3)
+
+    _synthetic_gfile(source)
+    data = source.read_bytes()
+    counts = data.index(b"    2    1\n")
+    tail = data.index(b"&EXTRA")
+    source.write_bytes(data[:counts] + b"    0    0\n" + data[tail:])
+    no_boundary = eqmdsk.GFile(source)
+    assert no_boundary["NBBBS"] == 0
+    assert no_boundary["LIMITR"] == 0
+    assert no_boundary["RBBBS"].shape == (0,)
+
+    _synthetic_gfile(source)
+    data = source.read_bytes()
+    source.write_bytes(data[:52] + b"99999999" + data[60:])
+    with pytest.raises(eqmdsk.ParseError, match="dimensions"):
+        eqmdsk.GFile(source)
+
+    source.write_bytes(data[:200])
+    with pytest.raises(eqmdsk.ParseError, match="unexpected end of file"):
+        eqmdsk.GFile(source)
+
+
+def test_gfile_rejects_unserializable_standard_header_fields(tmp_path):
+    source = tmp_path / "g"
+    _synthetic_gfile(source)
+    gfile = eqmdsk.GFile(source)
+    gfile["CASE"] = "X" * 49
+    with pytest.raises(eqmdsk.ValidationError, match="48"):
+        gfile.write(tmp_path / "out")
+
+    gfile["CASE"] = "bad\ncase"
+    with pytest.raises(eqmdsk.ValidationError, match="printable ASCII"):
+        gfile.write(tmp_path / "out")
+
+
 @pytest.mark.skipif(not REAL_GFILE.exists(), reason="local EFIT fixture unavailable")
 def test_real_gfile_golden_values_and_opaque_tail(tmp_path):
     gfile = eqmdsk.GFile(REAL_GFILE)
@@ -115,6 +177,30 @@ def test_cocos_selection_copy_and_inplace(tmp_path):
     returned = gfile.to_cocos(15)
     assert returned is gfile
     assert gfile.cocos.selected == 15
+
+
+def test_cocos_known_5_to_12_factors(tmp_path):
+    source = tmp_path / "g"
+    _synthetic_gfile(source, tail=b"")
+    gfile = eqmdsk.GFile(source)
+    gfile.select_cocos(5)
+    baseline = {
+        name: np.array(gfile[name], copy=True)
+        for name in ("FPOL", "PPRIME", "FFPRIM", "PSIRZ", "QPSI")
+    }
+    baseline.update({name: gfile[name] for name in ("CURRENT", "BCENTR", "SIMAG", "SIBRY")})
+
+    converted = gfile.to_cocos(12, inplace=False)
+    two_pi = 2.0 * np.pi
+    assert converted["CURRENT"] == pytest.approx(-baseline["CURRENT"])
+    assert converted["BCENTR"] == pytest.approx(-baseline["BCENTR"])
+    np.testing.assert_allclose(converted["FPOL"], -baseline["FPOL"])
+    assert converted["SIMAG"] == pytest.approx(-baseline["SIMAG"] * two_pi)
+    assert converted["SIBRY"] == pytest.approx(-baseline["SIBRY"] * two_pi)
+    np.testing.assert_allclose(converted["PSIRZ"], -baseline["PSIRZ"] * two_pi)
+    np.testing.assert_allclose(converted["PPRIME"], -baseline["PPRIME"] / two_pi)
+    np.testing.assert_allclose(converted["FFPRIM"], -baseline["FFPRIM"] / two_pi)
+    np.testing.assert_allclose(converted["QPSI"], -baseline["QPSI"])
 
 
 def test_write_defaults_to_original_filename(tmp_path):
