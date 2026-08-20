@@ -4,6 +4,12 @@ All four classes derive from `EFITFile`. `filename`, `fields`, `raw_sections`,
 `keys()`, mapping access, and `write()` refer to the same C++ object from both
 C++ and Python.
 
+This page is the compact schema reference. For construction, editing examples,
+preservation rules, and write constraints, use the [G-file](gfile.md),
+[A-file](afile.md), [K-file](kfile.md), or [S-file](sfile.md) guide. Common
+Python value types, NumPy ownership, exact-path writes, and exceptions are in
+the [Python API guide](python-api.md).
+
 ## GFile
 
 The standard fields are:
@@ -117,6 +123,7 @@ reserved for non-array entries so it cannot invalidate a live view.
 
 Up to three leading text records are `XLABEL`, `YLABEL`, and `TITLE`. Every data
 record has exactly four finite real values, exposed as equal-length float64
-vectors `X`, `Y`, `DX`, and `DY`. Text after data starts is anchored to the
-number of preceding data rows and retained across write/reparse. Empty and
-title-only files are valid.
+vectors `X`, `Y`, `DX`, and `DY`. Further non-data text is anchored to the
+number of preceding data rows and retained across write/reparse, including text
+before the first data row. Empty and text-only files with one to three leading
+label records are valid.

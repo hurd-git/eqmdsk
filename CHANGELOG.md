@@ -7,6 +7,9 @@ Semantic Versioning, with the documented pre-1.0 compatibility allowance.
 
 - Continue compatibility validation with additional licensed real-world files
   and platform CI runs.
+- Add per-format G/A/K/S usage guides and a shared Python API guide.
+- Ship PEP 561 type information with field-specific G/A/S lookup overloads and
+  complete K-file ordered-model signatures.
 
 ## [0.9.0] - 2026-08-20
 

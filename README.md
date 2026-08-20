@@ -88,8 +88,12 @@ output is guaranteed to remain semantically equivalent after reparsing; exact
 byte identity is intentionally required only where the implementation can
 preserve it without making raw text a second editable state.
 
-See [format and field details](docs/formats.md) and the
-[compatibility contract](docs/compatibility.md).
+See the [documentation index](docs/README.md), [Python API
+guide](docs/python-api.md), and individual [G](docs/gfile.md),
+[A](docs/afile.md), [K](docs/kfile.md), and [S](docs/sfile.md) file guides. The
+[format field reference](docs/formats.md) and [compatibility
+contract](docs/compatibility.md) define the compact schema and stability
+boundary.
 
 ## C++ use
 

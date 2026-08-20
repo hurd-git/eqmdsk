@@ -31,12 +31,19 @@ consumer must also use a compatible Eigen 3.4+ installation. Official Python
 wheel builds use the checksum-pinned Eigen fallback and do not distribute the
 C++ SDK artifacts.
 
+The Python distribution is marked as typed. Its bundled `__init__.pyi` covers
+the complete public binding, including field-name-specific return types for
+fixed G-, A-, and S-file schemas and the dynamic K-file value union. Type stub
+corrections that make annotations match existing runtime behavior are not
+runtime API changes.
+
 ## Distribution boundary
 
 - Source archives contain everything needed to build the Python extension or
   the C++ SDK, but do not contain the local `extern/` dependency trees.
 - Python wheels contain the Python package, extension, and license material;
-  they intentionally omit headers, static libraries, and CMake package files.
+  they include `__init__.pyi` and `py.typed`, and intentionally omit headers,
+  static libraries, and CMake package files.
 - `cmake --install ... --component Development` installs the C++ headers,
   static library, CMake package, and notices from a source build.
 - Cibuildwheel configuration produces repaired manylinux wheels and native

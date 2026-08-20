@@ -15,9 +15,11 @@ push or PyPI upload without explicit authorization.
    second wheel from the sdist.
 6. Inspect archives: no `extern`, `.venv`, build tree, downloaded fixtures, or
    cache; MIT and complete third-party notices must be present. Confirm that
-   wheels contain no C++ SDK artifacts.
+   wheels contain no C++ SDK artifacts and that the sdist, direct wheel, and
+   sdist-rebuilt wheel all contain `__init__.pyi` and an empty `py.typed`.
 7. Install the wheel into a clean virtual environment and run import/version
-   plus the packaged behavior smoke tests.
+   plus the packaged behavior smoke tests. Run the checked-in strict mypy usage
+   check and `mypy.stubtest` against that installed wheel.
 8. Run package metadata validation and verify `Requires-Python`, NumPy
    dependency, classifiers, and license expression.
 9. Execute the supported OS/Python CI matrix and the cibuildwheel matrix. Linux
