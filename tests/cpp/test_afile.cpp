@@ -124,9 +124,12 @@ int main() {
   assert(synthetic.optional_record_count() == 0);
   std::get<double>(synthetic.at("CHISQ")) = -1.0e100;
   synthetic.write(synthetic_output);
-  std::ifstream formatted_input(synthetic_output, std::ios::binary);
-  const std::string formatted((std::istreambuf_iterator<char>(formatted_input)),
-                              std::istreambuf_iterator<char>());
+  std::string formatted;
+  {
+    std::ifstream formatted_input(synthetic_output, std::ios::binary);
+    formatted.assign(std::istreambuf_iterator<char>(formatted_input),
+                     std::istreambuf_iterator<char>());
+  }
   assert(formatted.find("-0.100000000+101") != std::string::npos);
   const eqmdsk::AFile synthetic_reparsed(synthetic_output);
   assert(close_value(std::get<double>(synthetic_reparsed.at("CHISQ")),

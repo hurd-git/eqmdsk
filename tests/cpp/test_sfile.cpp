@@ -145,16 +145,22 @@ void test_bad_columns(const std::filesystem::path& directory) {
   const auto five = directory / "s-five-columns";
   const auto mixed = directory / "s-invalid-column";
   const auto mixed_after_data = directory / "s-invalid-after-data";
+  const auto overflow = directory / "s-overflow";
+  const auto underflow = directory / "s-underflow";
   write_bytes(three, "1 2 3\n");
   write_bytes(five, "1 2 3 4 5\n");
   write_bytes(mixed, "1 2 broken 4\n");
   write_bytes(mixed_after_data, "0 0 0 0\n1 damaged metadata\n");
+  write_bytes(overflow, "1e999 2 3 4\n");
+  write_bytes(underflow, "1e-999 2 3 4\n");
 
   assert_throws<eqmdsk::ParseError>([&] { eqmdsk::SFile file(three); });
   assert_throws<eqmdsk::ParseError>([&] { eqmdsk::SFile file(five); });
   assert_throws<eqmdsk::ParseError>([&] { eqmdsk::SFile file(mixed); });
   assert_throws<eqmdsk::ParseError>(
       [&] { eqmdsk::SFile file(mixed_after_data); });
+  assert_throws<eqmdsk::ParseError>([&] { eqmdsk::SFile file(overflow); });
+  assert_throws<eqmdsk::ParseError>([&] { eqmdsk::SFile file(underflow); });
 }
 
 void test_utf8_diagnostic_paths(const std::filesystem::path& directory) {

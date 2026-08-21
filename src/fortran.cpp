@@ -37,6 +37,17 @@ std::pair<std::size_t, std::size_t> line_and_column(const std::string& input,
 
 bool is_digit(char value) noexcept { return value >= '0' && value <= '9'; }
 
+bool has_nonzero_significand(std::string_view token) noexcept {
+  const auto exponent = token.find_first_of("Ee");
+  const auto end = exponent == std::string_view::npos ? token.size() : exponent;
+  for (std::size_t index = 0; index < end; ++index) {
+    if (token[index] >= '1' && token[index] <= '9') {
+      return true;
+    }
+  }
+  return false;
+}
+
 void append_utf8_replacement(std::string& output) {
   output.append("\xEF\xBF\xBD", 3);
 }
@@ -211,6 +222,12 @@ bool parse_fortran_real(std::string_view text, double& value) {
   stream.imbue(std::locale::classic());
   stream >> std::noskipws >> value;
   if (!stream) {
+    // libc++ reports ERANGE through failbit even when strtod produced an exact,
+    // representable subnormal. Accept that value only when the complete token
+    // was consumed; zero underflow and overflow remain invalid.
+    return stream.eof() && std::fpclassify(value) == FP_SUBNORMAL;
+  }
+  if (value == 0.0 && has_nonzero_significand(token)) {
     return false;
   }
   return stream.peek() == std::char_traits<char>::eof() &&

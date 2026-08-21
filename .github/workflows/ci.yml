@@ -217,9 +217,9 @@ jobs:
               assert any(item.endswith("/" + name) for item in source_names), name
           assert not any("/extern/" in item for item in source_names)
           assert not any("/.venv/" in item for item in source_names)
-          assert any(item.endswith("/eqmdsk/__init__.py") for item in wheel_names)
-          assert any(item.endswith("/eqmdsk/__init__.pyi") for item in wheel_names)
-          assert any(item.endswith("/eqmdsk/py.typed") for item in wheel_names)
+          assert any(item.endswith("eqmdsk/__init__.py") for item in wheel_names)
+          assert any(item.endswith("eqmdsk/__init__.pyi") for item in wheel_names)
+          assert any(item.endswith("eqmdsk/py.typed") for item in wheel_names)
           assert any("eqmdsk/_core" in item for item in wheel_names)
           assert any(item.endswith("/LICENSE") for item in wheel_names)
           assert any(item.endswith("/THIRD_PARTY_NOTICES.md") for item in wheel_names)

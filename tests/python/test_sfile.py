@@ -116,6 +116,16 @@ def test_sfile_rejects_bad_data_columns(tmp_path, row):
     assert caught.value.column == 1
 
 
+@pytest.mark.parametrize("value", ["1e999", "1e-999"])
+def test_sfile_rejects_unrepresentable_data_values(tmp_path, value):
+    source = _write(
+        tmp_path / "s.unrepresentable",
+        f"{value} 2 3 4\n".encode("ascii"),
+    )
+    with pytest.raises(eqmdsk.ParseError, match="finite and representable"):
+        eqmdsk.SFile(source)
+
+
 def test_sfile_rejects_strict_numeric_mixed_row_after_data(tmp_path):
     source = _write(
         tmp_path / "s.bad-row-after-data",
