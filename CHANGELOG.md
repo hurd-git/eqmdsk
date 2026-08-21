@@ -12,6 +12,8 @@ Semantic Versioning, with the documented pre-1.0 compatibility allowance.
   complete K-file ordered-model signatures.
 - Fix cross-platform CI coverage: wheel archive path checks, Windows test stream
   lifetime, and portable subnormal floating-point parsing.
+- Provide the project README in Chinese while retaining the complete Python,
+  C++, build, compatibility, and licensing guidance.
 
 ## [0.9.0] - 2026-08-20
 
