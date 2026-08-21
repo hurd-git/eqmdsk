@@ -1,5 +1,4 @@
 eqmdsk\.(AFile|CocosResult|GFile|KFile|KSection|SFile)
 eqmdsk\.CocosResult\.(candidates|diagnostic|selected)
-eqmdsk\.GFile\.cocos
 eqmdsk\.KFile\.filename
 eqmdsk\.KSection\.__init__

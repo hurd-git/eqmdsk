@@ -33,6 +33,16 @@ def test_file_mapping_repr_lists_all_fields(tmp_path):
     assert "X" in sfile
     assert "X" in sfile.keys()
     assert "X" in repr(sfile)
+    assert isinstance(sfile, dict)
+
+
+def test_file_mappings_are_debugger_expandable(tmp_path):
+    source = tmp_path / "k"
+    source.write_text("&IN1\n LIMITR=2\n&END\n", encoding="ascii")
+
+    kfile = eqmdsk.KFile(source)
+    assert isinstance(kfile, dict)
+    assert isinstance(kfile["IN1"], dict)
 
 
 def test_empty_cocos_result_preserves_no_match():

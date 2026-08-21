@@ -1,20 +1,233 @@
-"""Lightweight EFIT file I/O backed by C++."""
+"""Lightweight EFIT file I/O backed by C++.
 
-from ._core import (
-    AFile,
-    CocosError,
-    CocosResult,
-    Error,
-    FieldError,
-    GFile,
-    IOError,
-    ParseError,
-    KFile,
-    KSection,
-    SFile,
-    ValidationError,
-    __version__,
-)
+The public file classes are real ``dict`` subclasses.  Their entries are a
+debugger-friendly snapshot of the C++ mapping; mutable NumPy values remain
+zero-copy views, while scalar assignments are forwarded to the C++ owner.
+"""
+
+from __future__ import annotations
+
+import os
+from typing import Any, Iterator, List, Optional, Tuple, Type
+
+from . import _core
+
+_AFileCore = _core.AFile
+CocosError = _core.CocosError
+CocosResult = _core.CocosResult
+Error = _core.Error
+FieldError = _core.FieldError
+_GFileCore = _core.GFile
+IOError = _core.IOError
+ParseError = _core.ParseError
+_SFileCore = _core.SFile
+ValidationError = _core.ValidationError
+__version__ = _core.__version__
+
+
+def _canonical_section_key(name: str) -> str:
+    return name.upper()
+
+
+def _field_value(core: Any, name: str) -> Any:
+    """Convert one core value while preserving the public error contract."""
+    try:
+        return core[name]
+    except UnicodeDecodeError as exc:
+        raise Error(f"field {name!r} contains invalid UTF-8 text") from exc
+
+
+class _FileMapping(dict):
+    """Debugger-visible dict facade over one C++ file object."""
+
+    _core_cls: Type[Any]
+    _case_insensitive = False
+    _display_name = "EFITFile"
+
+    def __init__(self, filename: Any = None, *, _core_object: Any = None) -> None:
+        dict.__init__(self)
+        if _core_object is None:
+            _core_object = self._core_cls(os.fspath(filename))
+        self._core = _core_object
+        self._refresh()
+
+    @classmethod
+    def _from_core(cls, core_object: Any) -> "_FileMapping":
+        result = cls.__new__(cls)
+        dict.__init__(result)
+        result._core = core_object
+        result._refresh()
+        return result
+
+    def _key(self, name: str) -> str:
+        if self._case_insensitive:
+            return _canonical_section_key(name)
+        return name
+
+    def _refresh(self) -> None:
+        dict.clear(self)
+        for name in self._core.keys():
+            dict.__setitem__(self, name, _field_value(self._core, name))
+
+    @property
+    def filename(self) -> str:
+        return self._core.filename
+
+    def keys(self) -> List[str]:  # type: ignore[override]
+        return list(dict.keys(self))
+
+    def items(self) -> List[Tuple[str, Any]]:  # type: ignore[override]
+        return list(dict.items(self))
+
+    def values(self) -> List[Any]:  # type: ignore[override]
+        return list(dict.values(self))
+
+    def __iter__(self) -> Iterator[str]:
+        return dict.__iter__(self)
+
+    def __contains__(self, name: object) -> bool:
+        if not isinstance(name, str):
+            return False
+        return bool(self._core.__contains__(self._key(name)))
+
+    def __getitem__(self, name: str) -> Any:
+        key = self._key(name)
+        if dict.__contains__(self, key):
+            return dict.__getitem__(self, key)
+        # Let the C++ implementation provide the established FieldError.
+        return _field_value(self._core, key)
+
+    def get(self, name: str, default: Any = None) -> Any:
+        if name not in self:
+            return default
+        return self[name]
+
+    def __setitem__(self, name: str, value: Any) -> None:
+        key = self._key(name)
+        self._core[key] = value
+        dict.__setitem__(self, key, _field_value(self._core, key))
+
+    def write(self, path: Optional[Any] = None) -> None:
+        if path is None:
+            self._core.write()
+        else:
+            self._core.write(os.fspath(path))
+
+    def __getattr__(self, name: str) -> Any:
+        # COCOS and format-specific read-only helpers remain owned by C++.
+        return getattr(self._core, name)
+
+    def __repr__(self) -> str:
+        return f"{self._display_name}({dict.__repr__(self)})"
+
+
+class GFile(_FileMapping):
+    _core_cls = _GFileCore
+    _display_name = "GFile"
+
+    def __init__(self, filename: Any) -> None:
+        super().__init__(filename)
+
+    def select_cocos(self, source: int) -> None:
+        self._core.select_cocos(source)
+
+    def to_cocos(
+        self,
+        to_cocos: int,
+        from_cocos: Optional[int] = None,
+        inplace: bool = True,
+    ) -> "GFile":
+        converted = self._core.to_cocos(to_cocos, from_cocos, inplace)
+        if inplace:
+            self._refresh()
+            return self
+        return type(self)._from_core(converted)
+
+
+class AFile(_FileMapping):
+    _core_cls = _AFileCore
+    _display_name = "AFile"
+
+    def __init__(self, filename: Any) -> None:
+        super().__init__(filename)
+
+
+class SFile(_FileMapping):
+    _core_cls = _SFileCore
+    _display_name = "SFile"
+
+    def __init__(self, filename: Any) -> None:
+        super().__init__(filename)
+
+
+class KSection(dict):
+    """Debugger-visible dict facade for one K-file namelist section."""
+
+    def __init__(self, core_section: Any) -> None:
+        dict.__init__(self)
+        self._core = core_section
+        self._refresh()
+
+    def _refresh(self) -> None:
+        dict.clear(self)
+        for name in self._core.keys():
+            dict.__setitem__(self, name, _field_value(self._core, name))
+
+    def _key(self, name: str) -> str:
+        return name.upper()
+
+    def keys(self) -> List[str]:  # type: ignore[override]
+        return list(dict.keys(self))
+
+    def items(self) -> List[Tuple[str, Any]]:  # type: ignore[override]
+        return list(dict.items(self))
+
+    def values(self) -> List[Any]:  # type: ignore[override]
+        return list(dict.values(self))
+
+    def __contains__(self, name: object) -> bool:
+        return isinstance(name, str) and self._core.__contains__(self._key(name))
+
+    def __getitem__(self, name: str) -> Any:
+        key = self._key(name)
+        if dict.__contains__(self, key):
+            return dict.__getitem__(self, key)
+        return _field_value(self._core, key)
+
+    def get(self, name: str, default: Any = None) -> Any:
+        if name not in self:
+            return default
+        return self[name]
+
+    def __setitem__(self, name: str, value: Any) -> None:
+        key = self._key(name)
+        self._core[key] = value
+        dict.__setitem__(self, key, _field_value(self._core, key))
+
+    def __repr__(self) -> str:
+        return dict.__repr__(self)
+
+
+class KFile(_FileMapping):
+    _core_cls = _core.KFile
+    _case_insensitive = True
+    _display_name = "KFile"
+
+    def __init__(self, filename: Any) -> None:
+        super().__init__(filename)
+
+    def _refresh(self) -> None:
+        dict.clear(self)
+        for name in self._core.keys():
+            dict.__setitem__(
+                self,
+                name,
+                KSection(self._core[name]),
+            )
+
+    def __setitem__(self, name: str, value: Any) -> None:
+        raise TypeError("assign variables through kfile[section][name]")
+
 
 __all__ = [
     "AFile",
