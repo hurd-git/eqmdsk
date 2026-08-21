@@ -8,7 +8,7 @@ zero-copy views, while scalar assignments are forwarded to the C++ owner.
 from __future__ import annotations
 
 import os
-from typing import Any, Iterator, List, Optional, Tuple, Type
+from typing import Any, Iterable, Iterator, List, Optional, Tuple, Type
 
 from . import _core
 
@@ -35,6 +35,9 @@ def _field_value(core: Any, name: str) -> Any:
         return core[name]
     except UnicodeDecodeError as exc:
         raise Error(f"field {name!r} contains invalid UTF-8 text") from exc
+
+
+_MISSING = object()
 
 
 class _FileMapping(dict):
@@ -106,6 +109,52 @@ class _FileMapping(dict):
         key = self._key(name)
         self._core[key] = value
         dict.__setitem__(self, key, _field_value(self._core, key))
+
+    def update(
+        self,
+        other: Any = (),
+        /,
+        **kwargs: Any,
+    ) -> None:
+        """Update existing fields through the core mapping."""
+        items: Iterable[Tuple[str, Any]]
+        if hasattr(other, "keys"):
+            items = ((key, other[key]) for key in other.keys())
+        else:
+            items = other
+        for key, value in items:
+            self[key] = value
+        for key, value in kwargs.items():
+            self[key] = value
+
+    def setdefault(self, name: str, default: Any = None, /) -> Any:
+        if name in self:
+            return self[name]
+        self[name] = default
+        return self[name]
+
+    def __ior__(self, other: Any) -> "_FileMapping":
+        self.update(other)
+        return self
+
+    def __delitem__(self, name: str) -> None:
+        raise TypeError("EFIT fields cannot be removed")
+
+    def clear(self) -> None:
+        raise TypeError("EFIT fields cannot be removed")
+
+    def pop(self, name: str, *args: Any) -> Any:
+        if len(args) > 1:
+            raise TypeError(f"pop expected at most 2 arguments, got {len(args) + 1}")
+        default = args[0] if args else _MISSING
+        if name in self:
+            raise TypeError("EFIT fields cannot be removed")
+        if default is _MISSING:
+            raise KeyError(name)
+        return default
+
+    def popitem(self) -> Tuple[str, Any]:
+        raise TypeError("EFIT fields cannot be removed")
 
     def write(self, path: Optional[Any] = None) -> None:
         if path is None:
@@ -203,6 +252,52 @@ class KSection(dict):
         key = self._key(name)
         self._core[key] = value
         dict.__setitem__(self, key, _field_value(self._core, key))
+
+    def update(
+        self,
+        other: Any = (),
+        /,
+        **kwargs: Any,
+    ) -> None:
+        """Update existing fields through the core mapping."""
+        items: Iterable[Tuple[str, Any]]
+        if hasattr(other, "keys"):
+            items = ((key, other[key]) for key in other.keys())
+        else:
+            items = other
+        for key, value in items:
+            self[key] = value
+        for key, value in kwargs.items():
+            self[key] = value
+
+    def setdefault(self, name: str, default: Any = None, /) -> Any:
+        if name in self:
+            return self[name]
+        self[name] = default
+        return self[name]
+
+    def __ior__(self, other: Any) -> "KSection":
+        self.update(other)
+        return self
+
+    def __delitem__(self, name: str) -> None:
+        raise TypeError("K-file fields cannot be removed")
+
+    def clear(self) -> None:
+        raise TypeError("K-file fields cannot be removed")
+
+    def pop(self, name: str, *args: Any) -> Any:
+        if len(args) > 1:
+            raise TypeError(f"pop expected at most 2 arguments, got {len(args) + 1}")
+        default = args[0] if args else _MISSING
+        if name in self:
+            raise TypeError("K-file fields cannot be removed")
+        if default is _MISSING:
+            raise KeyError(name)
+        return default
+
+    def popitem(self) -> Tuple[str, Any]:
+        raise TypeError("K-file fields cannot be removed")
 
     def __repr__(self) -> str:
         return dict.__repr__(self)
