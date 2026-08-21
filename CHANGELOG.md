@@ -14,6 +14,10 @@ Semantic Versioning, with the documented pre-1.0 compatibility allowance.
   lifetime, and portable subnormal floating-point parsing.
 - Provide the project README in Chinese while retaining the complete Python,
   C++, build, compatibility, and licensing guidance.
+- Skip the invalid UTF-8 filename regression on macOS, whose filesystem rejects
+  the surrogate path before the library can receive it.
+- Prepare one tag's sdist and multi-platform wheels for a future synchronized
+  PyPI publication and GitHub Release.
 
 ## [0.9.0] - 2026-08-20
 

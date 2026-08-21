@@ -1,8 +1,13 @@
 # Release checklist
 
-Publishing is intentionally separate from normal development. The current
-project policy permits local Git commits and local package builds, but no remote
-push or PyPI upload without explicit authorization.
+Publishing is intentionally separate from normal development. A release is
+created from one semantic-version tag such as `v0.9.0`. The checked-in release
+workflow builds the sdist and the complete cibuildwheel matrix, verifies that
+every artifact has the same version, and uploads a combined artifact for review.
+It does not publish anything by default. A future, explicit manual dispatch on
+the tag with `publish=true` will publish those exact files to PyPI and then
+create the matching GitHub Release with the same files. It never publishes from
+`main` without a tag.
 
 1. Update the version in `CMakeLists.txt`, `pyproject.toml`, and
    `include/eqmdsk/version.hpp`; move the CHANGELOG entry out of Unreleased.
@@ -28,8 +33,18 @@ push or PyPI upload without explicit authorization.
 10. Fetch and checksum the optional public compatibility corpus, then run its
     parse/write/parse tests. Archive an updated benchmark result when behavior
     or parsing performance changed materially.
-11. Create a signed/tagged local release checkpoint. Remote upload remains a
-    separate explicitly authorized action.
+11. Create and push the release tag only after all checks pass. The tag workflow
+    only prepares and uploads artifacts; it does not publish PyPI or create a
+    Release.
+12. Before the first real release, configure a PyPI Trusted Publisher for this
+    repository and `.github/workflows/wheels.yml` with the
+    `pypa/gh-action-pypi-publish` action. Then manually dispatch the workflow on
+    the exact `vX.Y.Z` tag with `publish=true`. The publishing job requires
+    `contents: write` and `id-token: write`; no long-lived PyPI token is stored
+    in the repository.
+13. Inspect the completed publishing workflow and confirm that the PyPI version
+    and GitHub Release tag are identical. It publishes PyPI first, so a failed
+    PyPI publication does not create a public GitHub Release.
 
 Recommended local commands:
 
@@ -42,5 +57,6 @@ build/release-venv/bin/python -c "import eqmdsk; print(eqmdsk.__version__)"
 
 The `uv build` wheel above verifies local package composition only. Build
 publishable wheels with the checked-in cibuildwheel workflow; it performs the
-platform repair/audit step and tests each resulting wheel. Neither workflow
-uploads to PyPI.
+platform repair/audit step and tests each resulting wheel. A tag push invokes
+the preparation workflow only. The PyPI and GitHub Release actions are gated by
+the explicit `workflow_dispatch` `publish=true` input described above.

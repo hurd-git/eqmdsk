@@ -1,5 +1,6 @@
 import gc
 import os
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -150,7 +151,10 @@ def test_sfile_reports_unicode_diagnostic_paths(tmp_path):
     assert str(missing) in str(caught.value)
 
 
-@pytest.mark.skipif(os.name == "nt", reason="POSIX byte paths only")
+@pytest.mark.skipif(
+    os.name == "nt" or sys.platform == "darwin",
+    reason="invalid UTF-8 filesystem paths are unavailable on this platform",
+)
 def test_invalid_utf8_path_does_not_break_exception_translation(tmp_path):
     source = tmp_path / os.fsdecode(b"s-invalid-\xff")
     source.write_bytes(b"1 2 broken 4\n")
