@@ -8,7 +8,7 @@ import pytest
 import eqmdsk
 
 
-WORKSPACE_DATA = Path(__file__).resolve().parents[3] / "data"
+WORKSPACE_DATA = Path(__file__).resolve().parents[2] / "data"
 REAL_GFILE = WORKSPACE_DATA / "g067590.03300"
 
 
@@ -46,14 +46,13 @@ def test_synthetic_non_square_parse_write_parse(tmp_path):
     _synthetic_gfile(source)
 
     original = eqmdsk.GFile(source)
-    assert original.filename == source
+    assert original.filename == str(source)
     assert original["NW"] == 3
     assert original["NH"] == 2
     np.testing.assert_array_equal(
         original["PSIRZ"], [[100.0, 101.0, 102.0], [200.0, 201.0, 202.0]]
     )
     assert original["PSIRZ"].flags.c_contiguous
-    assert original.extension_tail.endswith(b"\0MAG\n")
 
     original["PSIRZ"][1, 2] = -99.0
     original["CURRENT"] = 8.0
@@ -62,7 +61,6 @@ def test_synthetic_non_square_parse_write_parse(tmp_path):
     reparsed = eqmdsk.GFile(target)
     assert reparsed["PSIRZ"][1, 2] == -99.0
     assert reparsed["CURRENT"] == 8.0
-    assert reparsed.extension_tail == original.extension_tail
     assert target.exists()
 
 
@@ -79,11 +77,9 @@ def test_gfile_numeric_header_and_line_ending_variants(tmp_path):
     gfile = eqmdsk.GFile(source)
     assert gfile["RDIM"] == 1.0
     assert gfile["ZDIM"] == 2.0
-    assert gfile.extra_header == b"PREAMBLE\r\n SUFFIX"
     gfile.write(output)
     reparsed = eqmdsk.GFile(output)
-    assert reparsed.extra_header == gfile.extra_header
-    assert reparsed.extension_tail == gfile.extension_tail
+    assert reparsed["RDIM"] == gfile["RDIM"]
 
 
 def test_gfile_whitespace_header_zero_boundary_and_bad_sizes(tmp_path):
@@ -149,7 +145,7 @@ def test_gfile_rejects_unserializable_standard_header_fields(tmp_path):
 
 
 @pytest.mark.skipif(not REAL_GFILE.exists(), reason="local EFIT fixture unavailable")
-def test_real_gfile_golden_values_and_opaque_tail(tmp_path):
+def test_real_gfile_golden_values_and_semantic_roundtrip(tmp_path):
     gfile = eqmdsk.GFile(REAL_GFILE)
 
     assert gfile["NW"] == 129
@@ -162,15 +158,11 @@ def test_real_gfile_golden_values_and_opaque_tail(tmp_path):
     assert gfile["PSIRZ"][128, 128] == pytest.approx(-0.0116863028)
     assert gfile["QPSI"][0] == pytest.approx(1.323673438)
     assert gfile["QPSI"][-1] == pytest.approx(11.5104681)
-    assert len(gfile.extension_tail) == 383000
-    assert b"&OUT1" in gfile.extension_tail
-    assert gfile.extension_tail.endswith(b"\0" * 42 + b" MAG\n")
     assert gfile.cocos.candidates == [5, 6, 15, 16]
 
     output = tmp_path / "g-roundtrip.custom"
     gfile.write(output)
     reparsed = eqmdsk.GFile(output)
-    assert reparsed.extension_tail == gfile.extension_tail
     np.testing.assert_allclose(reparsed["PSIRZ"], gfile["PSIRZ"], rtol=1e-9)
 
 
@@ -264,13 +256,13 @@ def test_gfile_array_view_keeps_owner_alive(tmp_path):
     assert view[1, 2] == 303.0
 
 
-def test_dimension_change_is_rejected_when_opaque_tail_exists(tmp_path):
+def test_dimension_change_requires_matching_arrays(tmp_path):
     path = tmp_path / "g"
     target = tmp_path / "out"
     _synthetic_gfile(path)
     gfile = eqmdsk.GFile(path)
     gfile["NW"] = 4
-    with pytest.raises(eqmdsk.ValidationError, match="extension tail"):
+    with pytest.raises(eqmdsk.ValidationError, match="length"):
         gfile.write(target)
     assert not target.exists()
 

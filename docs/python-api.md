@@ -1,132 +1,111 @@
 # Python API
 
-The Python package is a thin binding over the same C++ implementation used by
-the C++ API. It ships a `py.typed` marker and an `__init__.pyi` stub, so editors
-and type checkers can resolve the concrete return type of every documented
-field.
+`eqmdsk` 是一个轻量的 EFIT G/A/K/S 文件读写库。Python 类直接调用共享的
+C++17 实现，读取时一次性加载整个文件，写出时按照对应文件规范生成新的
+标准文本。
 
-## Opening and writing files
+## 打开和写出
 
-Choose the class explicitly; there is no format auto-detection or empty-file
-constructor. Construction immediately reads and parses the complete file.
+构造函数接受文件名字符串，也接受实现 `os.PathLike[str]` 的对象。文件会在
+构造时立即读取。`filename` 始终是字符串，不返回 `pathlib.Path`。
 
 ```python
-from pathlib import Path
-
 import eqmdsk
 
-g = eqmdsk.GFile(Path("g123456.01234"))
+g = eqmdsk.GFile("g123456.01234")
 a = eqmdsk.AFile("a123456.01234")
 k = eqmdsk.KFile("k123456.01234")
 s = eqmdsk.SFile("s123456.01234")
+
+g.write()                    # 写回原文件
+g.write("copy.any-suffix")   # 写到指定路径
 ```
 
-Constructors and `write()` accept strings and path-like objects. Binary path
-forms accepted by Python's filesystem protocol are also represented in the
-type stub. `filename` is the original path as a `pathlib.Path`.
+写出不会改变 `filename`。路径只用于读写和错误诊断，库不会根据后缀自动
+判断文件类型或追加后缀。
+
+## 映射行为
+
+GFile、AFile、SFile 都像只包含标准字段的字典：
 
 ```python
-g.write()                    # overwrite the original path
-g.write("copy.any-suffix")   # write exactly this path
-assert g.filename == Path("g123456.01234")
+print(g)                     # 显示全部字段和值
+print(g.keys())
+print(g.items())
+current = g["CURRENT"]
+g["CURRENT"] = 2.0
 ```
 
-`write(other_path)` does not change `filename`; a later no-argument `write()`
-still writes the original path. A suffix is never added or interpreted.
+它们提供 `keys()`、`items()`、`values()`、`get()`、`len(file)`、`name in file`
+和迭代。字段名使用规范中的大写形式。未知字段和错误字段访问会抛出
+`eqmdsk.FieldError`，赋值只能替换已有字段，不能创建新的标准字段。
 
-## Mapping interface and value types
-
-All file classes provide `keys()`, `len(file)`, `name in file`,
-`file[name]`, `file[name] = value`, `fields`, and read-only `raw_sections`.
-Names are the canonical uppercase EFIT names and are case-sensitive, except
-for K-file direct namelist lookup.
+KFile 是嵌套映射，第一层是 namelist 节，第二层是节内变量：
 
 ```python
-if "CURRENT" in g:
-    current: float = g["CURRENT"]
-
-for name in g.keys():
-    print(name, g.fields.type_name(name))
+k = eqmdsk.KFile("k067590.03300")
+print(k["IN1"])              # 显示 IN1 节的全部变量
+limitr = k["IN1"]["LIMITR"]
+k["IN1"]["LIMITR"] = 61
+k.write("k.modified")
 ```
 
-The runtime conversions are:
+K-file 标识符按 Fortran 规则大小写不敏感；`k["in1"]["limitr"]` 与大写写法
+等价。复杂的重复赋值、索引变量和不能安全投影为标准 Python 值的语法不会
+进入公开映射，写出时只生成公开映射中的标准变量。
 
-| Stored field | Python value |
+## 值类型
+
+| C++ 字段 | Python 值 |
 | --- | --- |
 | logical | `bool` |
 | integer | `int` |
 | real | `float` |
-| text | `str` |
-| integer vector | writable `numpy.ndarray[Any, numpy.dtype[numpy.int64]]` |
-| real vector/matrix | writable `numpy.ndarray[Any, numpy.dtype[numpy.float64]]` |
-| text vector | `list[str]` |
+| integer vector | 可写 `numpy.ndarray[int64]` |
+| real vector/matrix | 可写 `numpy.ndarray[float64]` |
+| string | `str` |
+| string vector | `list[str]` |
 
-The type stub uses `Literal` overloads for every fixed G-, A-, and S-file field.
-For example, an editor infers `g["NW"]` as `int`, `g["CURRENT"]` as `float`,
-and `g["PSIRZ"]` as a float64 NumPy array. K-file variable names are dynamic,
-so their convenience mapping has the complete value union.
-
-Looking up an unknown field raises `eqmdsk.FieldError`, not `KeyError`.
-Assignment only replaces an existing value of its existing stored type; it
-does not insert fields. Consequently Python cannot create a missing A-file
-optional record, add labels to an unlabeled S-file, or create K-file sections
-or variables through the mapping.
-
-## NumPy arrays and mutation
-
-Numeric arrays are writable, C-contiguous, zero-copy views of C++-owned
-storage. Keeping a view alive also keeps its owner alive.
+数值数组是 C++ 存储的可写零拷贝 view。保持数组对象存活也会保持文件对象
+存活。数组赋值必须保持原有形状；推荐直接修改 view：
 
 ```python
-import numpy as np
-from numpy.typing import NDArray
-
-psi: NDArray[np.float64] = g["PSIRZ"]
-psi[0, 0] = -0.25
-
-# Whole-array assignment copies into the same allocation.
-g["PSIRZ"] = np.asarray(psi, dtype=np.float64)
+g["PSIRZ"][0, 0] = -0.25
+s["Y"][0] = 42.0
 ```
 
-Whole-array assignment may convert compatible input to `int64` or `float64`,
-but its dimension and shape must exactly match the existing array. A mismatch
-raises Python `ValueError`. Python does not expose resize operations, so count
-or dimension fields must not be changed independently of their arrays.
+## GFile COCOS
 
-A returned `list[str]` is a converted value, not a view. Editing that list does
-not update the file; assign the complete list back when the field is exposed in
-the convenience mapping.
+GFile 额外提供 `cocos`、`select_cocos()` 和 `to_cocos()`。当 `from_cocos` 为
+`None` 时，库使用对象当前唯一或已选择的 COCOS；若来源不明确会抛出
+`CocosError`。
 
-The lists returned by `raw_sections`, K-file `sections`, section `entries`, and
-entry `values` are inspection lists. Adding or removing list elements does not
-change the parsed document. Use mapping assignment, in-place NumPy editing, or
-`KFile.set()` for supported mutations.
+```python
+converted = g.to_cocos(11, from_cocos=5, inplace=False)
+g.to_cocos(11)               # 对已 select_cocos() 的对象原地转换
+```
 
-## Preserved input
+## 规范写出
 
-`raw_sections` reports opaque source regions retained for round-tripping. Each
-`RawSection` has read-only `name: str`, `data: bytes`, `source_offset: int`, and
-`modified: bool` properties. Format-specific byte properties such as
-`GFile.extension_tail` and `AFile.footer` are also read-only. They may contain
-embedded NUL or non-UTF-8 bytes.
+读取器会接受常见的空白、换行和 Fortran 指数变体。写出器不会保留原始空格、
+注释、字段大小写、重复赋值历史、非标准尾部或二进制扩展区，而是从公开字段
+重新生成规范文本。保证条件是：
 
-The raw view is descriptive; it is not a second editable representation. See
-the individual format pages for exactly which regions are retained.
+```text
+parse(input) -> write(output) -> parse(output)
+```
 
-## Exceptions
+得到的公开 keys、值、数组形状和类型语义一致。原始解析树、`RawSection`、
+`header/footer`、KFile 的 `NamelistEntry` 等不属于最终 Python API。
 
-| Exception | Meaning |
+## 异常
+
+| 异常 | 含义 |
 | --- | --- |
-| `eqmdsk.IOError` | Open, read, write, flush, or close failure; this is not `OSError` |
-| `eqmdsk.ParseError` | The source is truncated or syntactically invalid |
-| `eqmdsk.ValidationError` | Modified fields cannot be serialized validly |
-| `eqmdsk.FieldError` | Unknown field/section/entry or wrong namelist value accessor |
-| `eqmdsk.CocosError` | COCOS source is absent, ambiguous, or invalid for conversion |
+| `IOError` | 文件打开、读取、写出或关闭失败 |
+| `ParseError` | 输入截断或语法无效；包含 `filename`、`line`、`column` |
+| `ValidationError` | 修改后的标准字段无法按规范写出 |
+| `FieldError` | 未知字段、节或变量 |
+| `CocosError` | COCOS 来源缺失、歧义或不支持 |
 
-All inherit from `eqmdsk.Error`. A translated `ParseError` includes
-`filename`, `line`, and `column`; a translated `CocosError` includes the
-`CocosResult` in `result`.
-
-Serialization is completed and validated before opening the destination, but
-replacement is not transactional. A device or filesystem failure during the
-write can leave a partial destination.
+所有异常都继承 `eqmdsk.Error`。

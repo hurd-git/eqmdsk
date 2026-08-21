@@ -27,7 +27,6 @@ def test_sfile_without_titles(tmp_path):
     np.testing.assert_array_equal(sfile["Y"], [2.0, 4.0])
     np.testing.assert_array_equal(sfile["DX"], [0.1, 0.3])
     np.testing.assert_array_equal(sfile["DY"], [0.2, 0.4])
-    assert not sfile.raw_sections
 
 
 def test_sfile_empty_and_titles_only(tmp_path):
@@ -63,7 +62,7 @@ def test_sfile_three_titles_and_fortran_exponents(tmp_path):
     np.testing.assert_array_equal(sfile["DY"], [0.4])
 
 
-def test_sfile_preserves_interstitial_text_at_relative_positions(tmp_path):
+def test_sfile_normalizes_interstitial_text_on_write(tmp_path):
     source = _write(
         tmp_path / "s.extra",
         b"x label\ny label\nfit title\n"
@@ -76,28 +75,14 @@ def test_sfile_preserves_interstitial_text_at_relative_positions(tmp_path):
     target = tmp_path / "s.extra.roundtrip"
 
     sfile = eqmdsk.SFile(source)
-    assert [section.data for section in sfile.raw_sections] == [
-        b"COMMENT BETWEEN\r\n",
-        b"2024-run metadata\n",
-        b"COMMENT AFTER\0OPAQUE",
-    ]
     sfile.write(target)
 
     output = target.read_bytes()
-    assert (
-        output.index(b"1 10")
-        < output.index(b"COMMENT BETWEEN")
-        < output.index(b"2024-run metadata")
-        < output.index(b"2 20")
-        < output.index(b"COMMENT AFTER")
-    )
+    assert b"COMMENT BETWEEN" not in output
+    assert b"2024-run metadata" not in output
+    assert b"COMMENT AFTER" not in output
     reparsed = eqmdsk.SFile(target)
     np.testing.assert_array_equal(reparsed["X"], sfile["X"])
-    assert [section.data for section in reparsed.raw_sections] == [
-        b"COMMENT BETWEEN\r\n",
-        b"2024-run metadata\n",
-        b"COMMENT AFTER\0OPAQUE",
-    ]
 
 
 @pytest.mark.parametrize(

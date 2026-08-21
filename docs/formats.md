@@ -1,131 +1,50 @@
 # Formats and public fields
 
-All four classes derive from `EFITFile`. `filename`, `fields`, `raw_sections`,
-`keys()`, mapping access, and `write()` refer to the same C++ object from both
-C++ and Python.
-
-This page is the compact schema reference. For construction, editing examples,
-preservation rules, and write constraints, use the [G-file](gfile.md),
-[A-file](afile.md), [K-file](kfile.md), or [S-file](sfile.md) guide. Common
-Python value types, NumPy ownership, exact-path writes, and exceptions are in
-the [Python API guide](python-api.md).
+eqmdsk 支持 EFIT G/A/K/S 四种文件。四个 Python 类都在读取时加载完整文件，
+通过字典式接口暴露标准字段，并按规范重新生成输出。库不提供自动格式检测，
+调用者应显式选择 `GFile`、`AFile`、`KFile` 或 `SFile`。
 
 ## GFile
 
-The standard fields are:
+公开字段包括：
 
-| Field | Type/shape | Meaning in this library |
-| --- | --- | --- |
-| `CASE` | string | Header title, at most 48 printable ASCII bytes |
-| `NW`, `NH` | integer | R and Z grid sizes |
-| `RDIM`, `ZDIM`, `RCENTR`, `RLEFT`, `ZMID` | double | Standard GEQDSK geometry scalars |
-| `RMAXIS`, `ZMAXIS`, `SIMAG`, `SIBRY` | double | Axis and flux scalars |
-| `BCENTR`, `CURRENT` | double | Toroidal field and plasma current |
-| `FPOL`, `PRES`, `FFPRIM`, `PPRIME`, `QPSI` | float64 `(NW,)` | Standard one-dimensional profiles |
-| `PSIRZ` | float64 `(NH, NW)` | Row index is Z; column index is R; R varies fastest in the file |
-| `NBBBS`, `LIMITR` | integer | Boundary and limiter point counts |
-| `RBBBS`, `ZBBBS` | float64 `(NBBBS,)` | Boundary coordinates |
-| `RLIM`, `ZLIM` | float64 `(LIMITR,)` | Limiter coordinates |
+- `CASE`、`NW`、`NH`；
+- 几何和磁平衡标量 `RDIM`、`ZDIM`、`RCENTR`、`RLEFT`、`ZMID`、`RMAXIS`、
+  `ZMAXIS`、`SIMAG`、`SIBRY`、`BCENTR`、`CURRENT`；
+- `FPOL`、`PRES`、`FFPRIM`、`PPRIME`、`QPSI` 一维数组；
+- `PSIRZ` 二维数组；
+- `NBBBS`、`LIMITR` 及边界和限制器坐标数组。
 
-The parser accepts fixed and whitespace headers, CRLF, Fortran `D` exponents,
-adjacent signed fields, and legacy exponents without an `E`. The writer emits
-true fixed-width Fortran `E16.9`, including the no-`E` representation needed
-for three-digit exponents. Data after the standard boundary block is an opaque
-binary `extension_tail`; dimensions cannot change while such a tail is present.
-
-`cocos` always returns `CocosResult`. `select_cocos(source)` accepts only a
-detected candidate. `to_cocos(to_cocos, from_cocos=None, inplace=True)` accepts
-an explicit supported source or, when omitted, requires the object's COCOS
-result to be unique or explicitly selected. Conversion currently applies only
-to G-files and transforms `CURRENT`, `BCENTR`, `FPOL`, `SIMAG`, `SIBRY`,
-`PSIRZ`, `PPRIME`, `FFPRIM`, and `QPSI`; geometry and pressure remain unchanged.
+写出器检查数组长度、网格尺寸、边界数量和有限数值，并生成标准 GEQDSK
+数字记录。COCOS 检测与转换只在 GFile 上提供。
 
 ## AFile
 
-Control and header fields are:
+AFile 公开 EFIT 标准控制字段、固定四实数记录、弦线数组、响应数组和最多
+十五组可选标准记录。控制字段包括：
 
 ```text
 SHOT TIME JFLAG LFLAG LIMLOC MCO2V MCO2R QMFLAG NLOLD NLNEW
 ```
 
-For compatibility with existing OMFIT behavior, `TIME` uses the valid control
-record value first, then the valid redundant third header record, and finally
-`0.0` when neither copy can be parsed. A whitespace control record may omit its
-`TIME` token and use the same fallback.
-
-The six initial four-real records expose:
-
-```text
-CHISQ RCENCM BCENTR IPMEAS
-IPMHD RCNTR ZCNTR AMINOR
-ELONG UTRI LTRI VOLUME
-RCURRT ZCURRT QSTAR BETAT
-BETAP LI GAPIN GAPOUT
-GAPTOP GAPBOT Q95 VERTN
-```
-
-Chord arrays are `RCO2V`, `DCO2V` with length `MCO2V`, and `RCO2R`, `DCO2R`
-with length `MCO2R`. Later fixed records expose:
-
-```text
-SHEAR BPOLAV S1 S2  S3 QOUT SEPIN SEPOUT
-SEPTOP SIBDRY AREA WMHD  ERROR ELONGM QM CDFLUX
-ALPHA RTTT PSIREF INDENT  RSEPS[2] ZSEPS[2]
-SEPEXP SEPBOT BTAXP BTAXV  AQ1 AQ2 AQ3 DSEP
-RM ZM PSIM TAUMHD  BETAPD BETATD WDIA DIAMAG
-VLOOP TAUDIA QMERCI TAVEM
-```
-
-Response counts `NSILOP0`, `MAGPRI0`, `NFCOIL0`, and `NESUM0` control arrays
-`CSILOP`, `CMPR2`, `CCBRSP`, and `ECCURT`. Up to 15 contiguous optional
-four-real records are recognized:
-
-```text
-PBINJ RVSIN ZVSIN RVSOUT  ZVSOUT VSURF WPDOT WBDOT
-SLANTU SLANTL ZUPERTS CHIPRE  CJOR95 PP95 DRSEP YYY2
-XNNC CPROF ORING CJOR0  FEXPAN QMIN CHIMSE SSI01
-FEXPVS SEPNOSE SSI95 RHOQMIN  CJOR99 CJ1AVE RMIDIN RMIDOUT
-PSURFA PEAK DMINUX DMINLX  DOLUBAF DOLUBAFM DILUDOM DILUDOMM
-RATSOL RVSIU ZVSIU RVSID  ZVSID RVSOU ZVSOU RVSOD
-ZVSOD CONDNO PSIN32 PSIN21  RQ32IN RQ21TOP CHILIBT LI3
-XBETAPR TFLUX TCHIMLS TWAGAP
-```
-
-Text before the `*` control record and data after the last recognized optional
-record are retained as binary header/footer regions.
+`MCO2V`、`MCO2R`、`NSILOP0`、`MAGPRI0`、`NFCOIL0`、`NESUM0` 控制对应数组
+长度。写出器会根据当前字段重建标准 header、控制记录和数据记录；原始
+header/footer、记录数量属性和其他排版信息不属于公开 API。
 
 ## KFile
 
-K-files use an ordered Fortran namelist model:
-
-- `NamelistSection` preserves section order, original spelling, `&`/`$` opener,
-  `/`/`&END`/`$END` terminator, and ordered entries;
-- `NamelistEntry` preserves duplicate variables, designator/subscript, comments,
-  source offsets, raw text, and typed values;
-- `NamelistValueKind` is `null`, `integer`, `real`, `logical`, `string`,
-  `complex`, or `raw`; repetition counts remain compressed;
-- block-external text is retained byte-for-byte.
-
-Names exposed in the effective `FieldMap` are uppercase. Direct `KFile`
-mapping lookup and the section/entry APIs are case-insensitive; the generic
-`kfile.fields` object is an ordinary `FieldMap` and requires its canonical
-uppercase keys. The effective map contains the final assignment only when it
-can be represented by `FieldValue`; indexed assignments, null-containing lists,
-complex/raw values, and logical vectors remain available through the ordered
-entry model. Its per-file expansion budgets are ten million effective values
-and 64 MiB of projected string storage. Larger compressed data remain ordered
-values without being expanded into the convenience map.
-
-`set(section, name, values, occurrence=0, section_occurrence=0)` modifies an
-existing entry. Version 0.9 does not create new sections or variables. In
-Python, exposed numeric arrays are edited through their NumPy view; `set()` is
-reserved for non-array entries so it cannot invalidate a live view.
+KFile 是两层映射：`kfile[section][variable]`。节和变量名大小写不敏感，
+重复赋值采用最后一个有效值。复杂 namelist 语法不会进入公开映射。写出器
+生成稳定的 Fortran namelist 文本。
 
 ## SFile
 
-Up to three leading text records are `XLABEL`, `YLABEL`, and `TITLE`. Every data
-record has exactly four finite real values, exposed as equal-length float64
-vectors `X`, `Y`, `DX`, and `DY`. Further non-data text is anchored to the
-number of preceding data rows and retained across write/reparse, including text
-before the first data row. Empty and text-only files with one to three leading
-label records are valid.
+SFile 的标准字段为可选的 `XLABEL`、`YLABEL`、`TITLE` 和四个等长数组
+`X`、`Y`、`DX`、`DY`。每一行数据必须包含四个有限实数。写出器输出可选标签
+和四列标准数据，忽略输入中的非标准穿插文本。
+
+## 路径和文本
+
+C++ 接口使用 UTF-8/本机字符串路径；Python 构造和写出接受字符串或
+`PathLike[str]`，`filename` 返回 `str`。标准文本字段在 Python 中返回 `str`，
+不返回 `bytes`。

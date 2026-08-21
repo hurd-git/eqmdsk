@@ -9,7 +9,7 @@ Semantic Versioning, with the documented pre-1.0 compatibility allowance.
   and platform CI runs.
 - Add per-format G/A/K/S usage guides and a shared Python API guide.
 - Ship PEP 561 type information with field-specific G/A/S lookup overloads and
-  complete K-file ordered-model signatures.
+  nested K-file section signatures.
 - Fix cross-platform CI coverage: wheel archive path checks, Windows test stream
   lifetime, and portable subnormal floating-point parsing.
 - Provide the project README in Chinese while retaining the complete Python,
@@ -22,19 +22,25 @@ Semantic Versioning, with the documented pre-1.0 compatibility allowance.
   `from_cocos` is omitted, use the file's unique or explicitly selected result.
 - Set platform-appropriate macOS deployment targets for filesystem-enabled
   Intel and arm64 wheels.
+- Simplify the public model to standard semantic mappings: G/A/S expose flat
+  dictionaries, K-files expose nested section dictionaries, and filenames and
+  text fields are strings on Python and C++ interfaces.
+- Canonicalize writes instead of exposing or preserving parser internals,
+  opaque raw sections, duplicate namelist history, comments, or non-standard
+  tails. Add readable mapping representations for debugging.
 
 ## [0.9.0] - 2026-08-20
 
 ### Added
 
 - C++17 and Python APIs for EFIT G-, A-, K-, and S-file parse/edit/write.
-- Canonical EFIT fields, writable zero-copy NumPy arrays, ordered raw sections,
-  structured errors, and CMake install/export support.
+- Canonical EFIT fields, writable zero-copy NumPy arrays, structured errors, and
+  CMake install/export support.
 - G-file COCOS detection, explicit source selection, and conversion across the
   16 standard numbered conventions.
 - A-file fixed/dynamic records and all 15 optional record groups.
-- Ordered K-file namelists with duplicates, comments, null/repeated/indexed/raw
-  values, multiple sections, and block-external binary text.
+- K-file namelists with case-insensitive nested section mappings and standard
+  scalar/vector projection.
 - Deterministic mutation smoke tests, sanitizer tests, and optional libFuzzer
   targets.
 - Linux/macOS/Windows CI, repaired multi-architecture wheel configuration,

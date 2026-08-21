@@ -25,8 +25,8 @@ macOS 11.0 for arm64. These minimums are required by the C++17
 
 ## Stable 0.9 API surface
 
-The compatibility focus is constructors, exact path writing, mapping access,
-the error hierarchy, G-file COCOS behavior, ordered K-file inspection, and the
+The compatibility focus is constructors, explicit path writing, mapping access,
+the error hierarchy, G-file COCOS behavior, nested K-file access, and the
 documented field names/shapes. Correctness fixes may still make small source
 changes before 1.0. No cross-compiler or cross-standard-library C++ ABI promise
 is made before 1.0; the installed static library and headers should be rebuilt
@@ -61,16 +61,16 @@ runtime API changes.
 - Serialization and schema validation finish before the destination is opened,
   and close-time I/O failures are reported. Replacement is not transactional:
   a device or filesystem failure during output can leave a partial file.
-- Unknown input is preserved, but newly inventing unknown format syntax is not
-  a public API. K-file `set()` modifies existing entries only.
-- `raw_sections` is read-only. Format-specific private state is the authority
-  used during serialization.
+- Readers accept common unknown or producer-specific syntax without exposing it
+  as a second public model. Writers generate only the documented standard fields.
 - Semantic parse/write/parse equivalence is required. Universal byte-for-byte
-  identity is not; line endings and numeric formatting may be canonicalized.
+  identity is not; comments, line endings, original spelling and numeric
+  formatting may be canonicalized.
 - Python whole-array assignment preserves shape. C++ resize invalidates prior
   references/views in the normal C++ manner.
-- Standard fields are case-sensitive and have no aliases. K-file identifiers
-  remain case-insensitive according to Fortran namelist rules.
+- Standard G/A/S fields are canonical uppercase names and have no aliases.
+  K-file section and variable identifiers remain case-insensitive according to
+  Fortran namelist rules.
 - COCOS detection/conversion applies only to G-files; conversion never guesses
   an ambiguous source when `from_cocos` is omitted, while an explicit supported
   `from_cocos` may override incomplete file metadata.
@@ -82,6 +82,6 @@ runtime API changes.
 Dimensions and counts are checked before multiplication and allocation and are
 bounded by available file data. G-file output dimensions use four-character
 fields; boundary counts use five. K-file convenience expansion is capped at ten
-million effective values and 64 MiB of projected string storage per file,
-while the compressed ordered representation remains available. File sizes must
-fit both `size_t` and `streamsize`.
+million effective values and 64 MiB of projected string storage per file;
+assignments above those limits are omitted from the public mapping. File sizes
+must fit both `size_t` and `streamsize`.

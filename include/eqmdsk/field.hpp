@@ -44,6 +44,10 @@ class FieldMap {
 
   FieldValue& at(const std::string& name);
   const FieldValue& at(const std::string& name) const;
+  FieldValue& operator[](const std::string& name) { return at(name); }
+  const FieldValue& operator[](const std::string& name) const {
+    return at(name);
+  }
   const FieldEntry& entry(const std::string& name) const;
 
   void insert(std::string name, FieldValue value, bool standard = false,

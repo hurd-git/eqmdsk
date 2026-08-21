@@ -328,8 +328,8 @@ bool any_fields_present(const FieldMap& fields,
 
 }  // namespace
 
-AFile::AFile(const std::filesystem::path& filename) : EFITFile(filename) {
-  parse(detail::read_binary_file(filename));
+AFile::AFile(std::string filename) : FieldFile(std::move(filename)) {
+  parse(detail::read_binary_file(filename_));
 }
 
 void AFile::parse(const std::string& bytes) {
@@ -355,7 +355,7 @@ void AFile::parse(const std::string& bytes) {
                      diagnostic_filename, lines[control_index].number, 1);
   }
 
-  header_ = bytes.substr(0, lines[control_index].begin);
+  date_header_ = std::string(lines[0].text);
   const auto& shot_line = lines[1];
   if (shot_line.text.size() < 7) {
     throw ParseError("A-file shot record is shorter than I7",
@@ -366,16 +366,12 @@ void AFile::parse(const std::string& bytes) {
     throw ParseError("invalid SHOT in A-file header", diagnostic_filename,
                      shot_line.number, 1);
   }
-  shot_field_offset_ = shot_line.begin;
-  time_field_offset_ = std::string::npos;
+  shot_suffix_ = std::string(shot_line.text.substr(7));
   std::optional<double> header_time;
   if (control_index >= 3) {
     const auto& header_time_line = lines[2];
     if (header_time_line.text.size() >= 17) {
       header_time = parse_real(header_time_line.text.substr(1, 16));
-      if (header_time) {
-        time_field_offset_ = header_time_line.begin + 1;
-      }
     }
   }
 
@@ -422,7 +418,6 @@ void AFile::parse(const std::string& bytes) {
       qmflag = detail::trim_copy(control.text.substr(52, 3));
       nlold = *parsed_nlold;
       nlnew = *parsed_nlnew;
-      control_suffix_ = std::string(control.text.substr(66));
     }
   }
   if (!fixed_control) {
@@ -477,8 +472,6 @@ void AFile::parse(const std::string& bytes) {
                      diagnostic_filename, control.number, 1);
   }
 
-  control_line_ending_ = control.ending.empty() ? "\n" : control.ending;
-  record_line_ending_ = control_line_ending_;
   std::size_t order = 0;
   fields_.insert("SHOT", *shot, true, order++);
   fields_.insert("TIME", time, true, order++);
@@ -632,29 +625,8 @@ void AFile::parse(const std::string& bytes) {
     }
   }
 
-  const auto footer_offset =
-      line_index < lines.size() ? lines[line_index].begin : bytes.size();
-  footer_ = bytes.substr(footer_offset);
-  raw_sections_.push_back(RawSection{"header", header_, 0, false});
-  if (!control_suffix_.empty()) {
-    raw_sections_.push_back(RawSection{
-        "control_suffix", control_suffix_, control.begin + 66, false});
-  }
-  if (!footer_.empty()) {
-    raw_sections_.push_back(
-        RawSection{"footer", footer_, footer_offset, false});
-  }
-}
-
-std::size_t AFile::optional_record_count() const noexcept {
-  std::size_t count = 0;
-  for (const auto& names : kOptionalRecords) {
-    if (!all_fields_present(fields_, names)) {
-      break;
-    }
-    ++count;
-  }
-  return count;
+  // Remaining producer-specific records are outside the supported A-file
+  // schema and are intentionally omitted by the canonical writer.
 }
 
 void AFile::validate_for_write() const {
@@ -776,23 +748,17 @@ void AFile::validate_for_write() const {
   }
 }
 
-void AFile::write(const std::filesystem::path& path) const {
+void AFile::write(const std::string& path) const {
   validate_for_write();
 
-  std::string output = header_;
-  if (shot_field_offset_ + 7 > output.size()) {
-    throw ValidationError("stored A-file header offsets are invalid");
-  }
-  output.replace(shot_field_offset_, 7,
-                 integer_field(require<std::int64_t>(fields_, "SHOT"), 7,
-                               "SHOT"));
-  if (time_field_offset_ != std::string::npos) {
-    if (time_field_offset_ + 16 > output.size()) {
-      throw ValidationError("stored A-file TIME header offset is invalid");
-    }
-    output.replace(time_field_offset_, 16,
-                   real_field(require<double>(fields_, "TIME"), "TIME"));
-  }
+  std::string output = date_header_;
+  output += '\n';
+  output += integer_field(require<std::int64_t>(fields_, "SHOT"), 7, "SHOT");
+  output += shot_suffix_;
+  output += '\n';
+  output += ' ';
+  output += real_field(require<double>(fields_, "TIME"), "TIME");
+  output += '\n';
 
   output += '*';
   output += time_field(require<double>(fields_, "TIME"));
@@ -821,15 +787,14 @@ void AFile::write(const std::filesystem::path& path) const {
                           "NLOLD");
   output += integer_field(require<std::int64_t>(fields_, "NLNEW"), 5,
                           "NLNEW");
-  output += control_suffix_;
-  output += control_line_ending_;
+  output += '\n';
 
   for (const auto& names : kInitialRecords) {
-    append_named_record(output, fields_, names, record_line_ending_);
+    append_named_record(output, fields_, names, "\n");
   }
   for (const auto* name : kChordArrays) {
     append_vector_records(output, require<DoubleVector>(fields_, name), name,
-                          record_line_ending_);
+                          "\n");
   }
   for (std::size_t record = 0; record < kLaterRecords.size(); ++record) {
     if (record == 5) {
@@ -838,10 +803,10 @@ void AFile::write(const std::filesystem::path& path) const {
       append_real_record(output,
                          {{rseps[0], "RSEPS"}, {zseps[0], "ZSEPS"},
                           {rseps[1], "RSEPS"}, {zseps[1], "ZSEPS"}},
-                         record_line_ending_);
+                         "\n");
     } else {
       append_named_record(output, fields_, kLaterRecords[record],
-                          record_line_ending_);
+                          "\n");
     }
   }
 
@@ -849,7 +814,7 @@ void AFile::write(const std::filesystem::path& path) const {
   for (const auto* name : {"NSILOP0", "MAGPRI0", "NFCOIL0", "NESUM0"}) {
     output += integer_field(require<std::int64_t>(fields_, name), 5, name);
   }
-  output += record_line_ending_;
+  output += '\n';
 
   const auto& csilop = require<DoubleVector>(fields_, "CSILOP");
   const auto& cmpr2 = require<DoubleVector>(fields_, "CMPR2");
@@ -861,19 +826,18 @@ void AFile::write(const std::filesystem::path& path) const {
     combined.tail(cmpr2.size()) = cmpr2;
   }
   append_vector_records(output, combined, "CSILOP/CMPR2",
-                        record_line_ending_);
+                        "\n");
   append_vector_records(output, require<DoubleVector>(fields_, "CCBRSP"),
-                        "CCBRSP", record_line_ending_);
+                        "CCBRSP", "\n");
   append_vector_records(output, require<DoubleVector>(fields_, "ECCURT"),
-                        "ECCURT", record_line_ending_);
+                        "ECCURT", "\n");
 
   for (const auto& names : kOptionalRecords) {
     if (!all_fields_present(fields_, names)) {
       break;
     }
-    append_named_record(output, fields_, names, record_line_ending_);
+    append_named_record(output, fields_, names, "\n");
   }
-  output += footer_;
   detail::write_binary_file(path, output);
 }
 

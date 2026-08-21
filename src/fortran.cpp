@@ -111,6 +111,18 @@ std::string path_for_diagnostic(const std::filesystem::path& path) {
   }
 }
 
+std::filesystem::path path_from_string(const std::string& path) {
+#ifdef _WIN32
+  return std::filesystem::u8path(path);
+#else
+  return std::filesystem::path(path);
+#endif
+}
+
+std::string path_for_diagnostic(const std::string& path) {
+  return path_for_diagnostic(path_from_string(path));
+}
+
 std::string read_binary_file(const std::filesystem::path& path) {
   std::ifstream input(path, std::ios::binary);
   if (!input) {
@@ -146,6 +158,10 @@ std::string read_binary_file(const std::filesystem::path& path) {
   return bytes;
 }
 
+std::string read_binary_file(const std::string& path) {
+  return read_binary_file(path_from_string(path));
+}
+
 void write_binary_file(const std::filesystem::path& path,
                        const std::string& bytes) {
   if (bytes.size() > static_cast<std::size_t>(
@@ -166,6 +182,10 @@ void write_binary_file(const std::filesystem::path& path,
     throw IOError("unable to finish writing file: " +
                   path_for_diagnostic(path));
   }
+}
+
+void write_binary_file(const std::string& path, const std::string& bytes) {
+  write_binary_file(path_from_string(path), bytes);
 }
 
 std::string trim_copy(std::string_view value) {

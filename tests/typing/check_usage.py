@@ -27,7 +27,7 @@ def check_gfile(g: eqmdsk.GFile) -> None:
         to_cocos=11, from_cocos=5, inplace=False
     )
     result: eqmdsk.CocosResult = g.cocos
-    target: Path = g.filename
+    target: str = g.filename
     _ = (case, nw, current, psi, converted, result, target)
 
 
@@ -36,19 +36,14 @@ def check_afile(a: eqmdsk.AFile) -> None:
     flag: str = a["LIMLOC"]
     chisq: float = a["CHISQ"]
     chord: NDArray[np.float64] = a["RCO2V"]
-    count: int = a.optional_record_count
-    raw: bytes = a.footer
-    _ = (shot, flag, chisq, chord, count, raw)
+    _ = (shot, flag, chisq, chord)
 
 
 def check_kfile(k: eqmdsk.KFile) -> None:
-    value: FieldValue = k["DEVICE_DEFINED_NAME"]
-    sections: List[eqmdsk.NamelistSection] = k.sections
-    entry: eqmdsk.NamelistEntry = k.entry("IN1", "BTOR")
-    values: List[eqmdsk.NamelistValue] = entry.values
-    scalar: Union[None, int, float, bool, str, complex] = values[0].value
-    k.set("IN1", "BTOR", [eqmdsk.NamelistValue.real(-2.1)])
-    _ = (value, sections, scalar)
+    section: eqmdsk.KSection = k["IN1"]
+    limitr: int = section["LIMITR"]
+    value: FieldValue = section["BTOR"]
+    _ = (limitr, value)
 
 
 def check_sfile(s: eqmdsk.SFile) -> None:
@@ -56,19 +51,3 @@ def check_sfile(s: eqmdsk.SFile) -> None:
     x: NDArray[np.float64] = s["X"]
     s.write(Path("s.output"))
     _ = (title, x)
-
-
-def check_rejected_calls(
-    g: eqmdsk.GFile,
-    a: eqmdsk.AFile,
-    s: eqmdsk.SFile,
-    fields: eqmdsk.FieldMap,
-) -> None:
-    # These ignores are expected-error assertions: strict mypy reports an
-    # unused ignore if a future broad overload accidentally accepts the call.
-    g["NW"] = "wrong"  # type: ignore[call-overload]
-    g["CURRENT"] = "wrong"  # type: ignore[call-overload]
-    g["PSIRZ"] = "wrong"  # type: ignore[call-overload]
-    a["SHOT"] = "wrong"  # type: ignore[call-overload]
-    s["TITLE"] = 1  # type: ignore[call-overload]
-    fields.contains(name="CURRENT")  # type: ignore[call-arg]

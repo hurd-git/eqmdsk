@@ -201,8 +201,8 @@ void ensure_record_boundary(std::string& output) {
 
 }  // namespace
 
-SFile::SFile(const std::filesystem::path& filename) : EFITFile(filename) {
-  parse(detail::read_binary_file(filename));
+SFile::SFile(std::string filename) : FieldFile(std::move(filename)) {
+  parse(detail::read_binary_file(filename_));
 }
 
 void SFile::parse(const std::string& bytes) {
@@ -243,11 +243,8 @@ void SFile::parse(const std::string& bytes) {
     } else if (!data_started && labels.size() < 3) {
       labels.emplace_back(content);
     } else {
-      const auto data_index = x.size();
-      std::string raw = bytes.substr(offset, record_end - offset);
-      preserved_lines_.push_back(PreservedLine{data_index, raw});
-      raw_sections_.push_back(
-          RawSection{"extra_text", std::move(raw), offset, false});
+      // Non-data records outside the leading labels are accepted for broad
+      // compatibility but omitted by the canonical writer.
     }
 
     offset = record_end;
@@ -304,7 +301,7 @@ void SFile::validate_for_write() const {
   }
 }
 
-void SFile::write(const std::filesystem::path& path) const {
+void SFile::write(const std::string& path) const {
   validate_for_write();
   const auto& x = require<DoubleVector>(fields_, "X");
   const auto& y = require<DoubleVector>(fields_, "Y");
@@ -322,15 +319,8 @@ void SFile::write(const std::filesystem::path& path) const {
   std::ostringstream row;
   row.imbue(std::locale::classic());
   row << std::setprecision(std::numeric_limits<double>::max_digits10);
-  std::size_t preserved_index = 0;
   const auto count = static_cast<std::size_t>(x.size());
   for (std::size_t data_index = 0; data_index < count; ++data_index) {
-    while (preserved_index < preserved_lines_.size() &&
-           preserved_lines_[preserved_index].data_index <= data_index) {
-      ensure_record_boundary(output);
-      output += preserved_lines_[preserved_index].bytes;
-      ++preserved_index;
-    }
     ensure_record_boundary(output);
     row.str({});
     row.clear();
@@ -340,12 +330,6 @@ void SFile::write(const std::filesystem::path& path) const {
         << dy[static_cast<Eigen::Index>(data_index)] << '\n';
     output += row.str();
   }
-  while (preserved_index < preserved_lines_.size()) {
-    ensure_record_boundary(output);
-    output += preserved_lines_[preserved_index].bytes;
-    ++preserved_index;
-  }
-
   detail::write_binary_file(path, output);
 }
 

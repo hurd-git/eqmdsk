@@ -1,142 +1,51 @@
 # K-file guide
 
-`KFile` is a loss-aware reader and writer for EFIT Fortran namelists. K-files
-do not have one fixed field schema, so the API provides both a convenient
-mapping of effective values and an ordered document model that retains syntax
-the mapping cannot represent.
-
-## Convenience mapping
+K-file 对外表现为两层字典。第一层键是 namelist 节名，第二层键是节内变量
+名：
 
 ```python
-import numpy as np
-from numpy.typing import NDArray
-
 import eqmdsk
 
 k = eqmdsk.KFile("k067590.03300")
-
-kffcur: int = k["KFFCUR"]
-xlim: NDArray[np.float64] = k["XLIM"]
-
-k["KFFCUR"] = 2
-xlim[0] += 0.01
+print(k.keys())
+print(k["IN1"].keys())
+print(k["IN1"]["LIMITR"])
+k["IN1"]["LIMITR"] = 61
 k.write("k.modified")
 ```
 
-Direct `k[name]`, `name in k`, `section()`, and `entry()` lookup is
-case-insensitive, as required for Fortran identifiers. `k.fields` is the
-generic `FieldMap`, exposes canonical uppercase names, and remains
-case-sensitive.
+节名和变量名按照 Fortran 标识符大小写不敏感。每个节对象提供
+`keys()`、`items()`、`values()`、`get()`、`len()`、迭代和索引读写，因此调试
+器可以直接展开 `k["IN1"]` 查看全部公开变量。
 
-For duplicate assignments, the mapping represents only the final effective
-assignment. The mapping conversion is:
+## 投影规则
 
-| Final assignment | Mapping value |
+读取器会识别常见的 Fortran namelist 写法，并把最终有效赋值投影为简单值：
+
+| 输入值 | 映射值 |
 | --- | --- |
-| one integer, real, logical, or string | `int`, `float`, `bool`, or `str` |
-| multiple integers | writable int64 NumPy vector |
-| multiple integer/real values | writable float64 NumPy vector |
-| multiple strings | `list[str]` |
-| indexed, null-containing, complex, raw, logical-vector, or incompatible mixed values | omitted from the mapping |
+| 单个整数、实数、逻辑或字符串 | `int`、`float`、`bool`、`str` |
+| 多个整数 | 可写 `numpy.ndarray[int64]` |
+| 多个整数/实数 | 可写 `numpy.ndarray[float64]` |
+| 多个字符串 | `list[str]` |
 
-Omission from `k.keys()` does not mean input was discarded; inspect the
-ordered model instead. A returned string list is a copy, so assign the entire
-list back to update a mapped string vector.
+带索引的变量、空值、复杂值、原始语法和无法安全投影的逻辑向量不会加入
+公开映射。它们不会伪装成普通字段，也不会在规范写出时重新生成。
 
-## Ordered sections and entries
+重复节或重复变量采用最后一个可投影赋值。`keys()` 只返回公开映射中的节和
+变量，因此它代表写出结果，而不是输入文件的语法树。
 
-```python
-section = k.section("IN1")
-print(section.original_name, section.opener, section.terminator)
+## 写出规则
 
-entry = k.entry("IN1", "BTOR")
-for value in entry.values:
-    print(value.kind, value.repeat, value.value)
-```
-
-`sections: list[NamelistSection]` preserves section order and repeated section
-names. `section_count(name)` counts case-insensitive matches, and
-`section(name, occurrence=0)` selects a zero-based occurrence.
-
-A `NamelistSection` exposes:
-
-- `name` (canonical uppercase), `original_name`, `opener`, and `terminator`;
-- ordered `entries`, plus `count(name)` and `entry(name, occurrence=0)`;
-- `raw_text: bytes`, `source_order`, and `source_offset`.
-
-A `NamelistEntry` exposes:
-
-- `name`, `original_name`, `designator`, and `subscript`;
-- `values: list[NamelistValue]`;
-- `raw_text: bytes`, `source_order`, `source_offset`, `parsed`, and `modified`.
-
-The inspection lists are converted Python lists. Adding, removing, or
-reordering their elements does not modify the K-file.
-
-`raw_text` is the original source snapshot for inspection, not a regenerated
-view. Likewise, `NamelistEntry.modified` tracks ordered-entry changes made by
-`set()`; changing only the effective convenience mapping does not change that
-flag, even though `write()` still serializes the mapped value.
-
-## Namelist values and set()
-
-`NamelistValue.kind` is one of `null`, `integer`, `real`, `logical`, `string`,
-`complex`, or `raw`. `value` has the corresponding Python type (`None`, `int`,
-`float`, `bool`, `str`, or `complex`), while `repeat` retains a compressed
-Fortran repetition count. Type-specific `as_integer()`, `as_real()`,
-`as_logical()`, `as_string()`, `as_complex()`, and `as_raw()` accessors raise
-`FieldError` when used with the wrong kind.
-
-Use the factories and `set()` when an entry cannot be represented safely by
-mapping assignment:
+KFile 写出所有公开节和变量，使用稳定的 `&SECTION`、`NAME = VALUE`、`/`
+格式。输入文件中的注释、节外文本、重复赋值顺序、原始大小写和排版不保留。
+写出后重新读取，公开映射的键和值应保持一致。
 
 ```python
-k.set(
-    "IN1",
-    "BTOR",
-    [eqmdsk.NamelistValue.real(-2.1)],
-)
-
-k.set(
-    "IN1",
-    "OPTION",
-    [
-        eqmdsk.NamelistValue.integer(7),
-        eqmdsk.NamelistValue.null(),
-    ],
-    occurrence=0,
-    section_occurrence=0,
-)
+before = {name: dict(section.items()) for name, section in k.items()}
+k.write("k.output")
+after = {name: dict(section.items()) for name, section in eqmdsk.KFile("k.output").items()}
+assert before.keys() == after.keys()
 ```
 
-Both occurrence arguments are zero-based. `set()` only modifies an existing
-section and entry; version 0.9 does not create either. Numeric arrays already
-exposed as NumPy views must be edited through the view; using `set()` on such a
-field raises `ValueError` so an existing view cannot be invalidated.
-
-`NamelistValue.raw(text)` writes caller-supplied namelist syntax. eqmdsk retains
-it as opaque text and cannot validate its producer-specific meaning.
-
-## Preservation and resource limits
-
-Section spelling, `&`/`$` openers, terminators, entry order, duplicate names,
-designators/subscripts, comments, raw values, and text outside blocks are
-retained. An entirely unmodified K-file is written byte-for-byte. Editing an
-entry canonicalizes the changed value while preserving unrelated original
-text and block-external binary bytes. `raw_sections` identifies external text
-as `outside_0`, `outside_1`, and so on.
-
-The convenience mapping expands at most ten million effective values and 64
-MiB of projected string storage per file. Larger compressed assignments remain
-available in `NamelistValue.repeat` without allocating their expansion.
-
-## C++ example
-
-```cpp
-#include <eqmdsk/eqmdsk.hpp>
-
-eqmdsk::KFile k("k067590.03300");
-std::get<std::int64_t>(k.at("KFFCUR")) = 2;
-k.set("IN1", "BTOR", {eqmdsk::NamelistValue::real(-2.1)});
-k.write("k.modified");
-```
+不支持通过映射创建新的节或变量；访问不存在的键会抛出 `FieldError`。

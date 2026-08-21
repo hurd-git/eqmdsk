@@ -5,10 +5,12 @@
 #include <algorithm>
 #include <cerrno>
 #include <cmath>
+#include <complex>
 #include <cstdlib>
 #include <iomanip>
 #include <limits>
 #include <locale>
+#include <memory>
 #include <optional>
 #include <sstream>
 #include <string_view>
@@ -19,7 +21,95 @@
 #include "eqmdsk/error.hpp"
 
 namespace eqmdsk {
+
+namespace detail {
+
+enum class NamelistValueKind {
+  null,
+  integer,
+  real,
+  logical,
+  string,
+  complex,
+  raw,
+};
+
+class NamelistValue {
+ public:
+  using Storage =
+      std::variant<std::int64_t, double, bool, std::string,
+                   std::complex<double>>;
+
+  static NamelistValue null(std::size_t repeat = 1);
+  static NamelistValue integer(std::int64_t value, std::size_t repeat = 1);
+  static NamelistValue real(double value, std::size_t repeat = 1);
+  static NamelistValue logical(bool value, std::size_t repeat = 1);
+  static NamelistValue string(std::string value, std::size_t repeat = 1);
+  static NamelistValue complex(std::complex<double> value,
+                               std::size_t repeat = 1);
+  static NamelistValue raw(std::string value, std::size_t repeat = 1);
+
+  NamelistValueKind kind() const noexcept { return kind_; }
+  std::size_t repeat() const noexcept { return repeat_; }
+  const Storage& storage() const noexcept { return storage_; }
+
+  std::int64_t as_integer() const;
+  double as_real() const;
+  bool as_logical() const;
+  const std::string& as_string() const;
+  const std::complex<double>& as_complex() const;
+  const std::string& as_raw() const;
+
+ private:
+  NamelistValue(NamelistValueKind kind, Storage storage, std::size_t repeat);
+
+  NamelistValueKind kind_ = NamelistValueKind::raw;
+  Storage storage_ = std::string{};
+  std::size_t repeat_ = 1;
+};
+
+struct NamelistEntry {
+  const std::string& name() const noexcept { return name_; }
+  const std::string& subscript() const noexcept { return subscript_; }
+  const std::vector<NamelistValue>& values() const noexcept { return values_; }
+
+  std::string name_;
+  std::string subscript_;
+  std::vector<NamelistValue> values_;
+};
+
+struct NamelistSection {
+  const std::string& name() const noexcept { return name_; }
+
+  std::string name_;
+  std::vector<NamelistEntry> entries_;
+};
+
+struct FieldTarget {
+  std::size_t section = 0;
+  std::size_t entry = 0;
+};
+
+struct ProjectedSection {
+  std::string name;
+  FieldMap fields;
+  std::vector<std::pair<std::string, FieldTarget>> targets;
+};
+
+struct KFileImpl {
+  std::vector<ProjectedSection> projected_sections;
+  std::unordered_map<std::string, std::size_t> projected_indices;
+};
+
+}  // namespace detail
+
 namespace {
+
+using detail::FieldTarget;
+using detail::NamelistEntry;
+using detail::NamelistSection;
+using detail::NamelistValue;
+using detail::NamelistValueKind;
 
 bool ascii_alpha(char value) noexcept {
   return (value >= 'A' && value <= 'Z') ||
@@ -119,7 +209,7 @@ std::pair<std::size_t, std::size_t> line_and_column(
 }
 
 [[noreturn]] void parse_failure(const std::string& message,
-                                const std::filesystem::path& filename,
+                                const std::string& filename,
                                 std::string_view text,
                                 std::size_t position) {
   const auto location = line_and_column(text, position);
@@ -236,7 +326,6 @@ struct AssignmentStart {
   std::size_t begin = 0;
   std::size_t equals = 0;
   std::string original_name;
-  std::string designator;
   std::string subscript;
 };
 
@@ -305,12 +394,9 @@ std::vector<AssignmentStart> find_assignments(std::string_view body) {
       continue;
     }
 
-    const auto designator =
-        detail::trim_copy(body.substr(name_begin, probe - name_begin));
     result.push_back(AssignmentStart{
         name_begin, probe,
-        std::string(body.substr(name_begin, name_end - name_begin)),
-        designator, subscript});
+        std::string(body.substr(name_begin, name_end - name_begin)), subscript});
     position = probe + 1;
   }
   return result;
@@ -399,7 +485,6 @@ struct ParsedToken {
   NamelistValueKind kind = NamelistValueKind::raw;
   NamelistValue::Storage storage = std::string{};
   std::size_t repeat = 1;
-  std::string original_text;
   std::size_t end = 0;
 };
 
@@ -433,8 +518,6 @@ ParsedToken parse_scalar(std::string_view text, std::size_t begin,
       result.storage = std::string(text.substr(scalar_begin, begin - scalar_begin));
     }
     result.end = begin;
-    result.original_text =
-        std::string(text.substr(scalar_begin, begin - scalar_begin));
     return result;
   }
 
@@ -472,7 +555,6 @@ ParsedToken parse_scalar(std::string_view text, std::size_t begin,
       result.storage = std::string(text.substr(begin, end - begin));
     }
     result.end = end;
-    result.original_text = std::string(text.substr(begin, end - begin));
     return result;
   }
 
@@ -504,7 +586,6 @@ ParsedToken parse_scalar(std::string_view text, std::size_t begin,
     result.storage = std::string(token);
   }
   result.end = end;
-  result.original_text = std::string(token);
   return result;
 }
 
@@ -548,7 +629,6 @@ ParsedValues parse_values(std::string_view text) {
         ParsedToken null_value;
         null_value.kind = NamelistValueKind::null;
         null_value.storage = std::string{};
-        null_value.original_text.clear();
         null_value.end = position;
         result.values.push_back(std::move(null_value));
         have_any_value = true;
@@ -559,7 +639,6 @@ ParsedValues parse_values(std::string_view text) {
       continue;
     }
 
-    const auto value_begin = position;
     std::size_t repeat = 1;
     bool had_repeat = false;
     if (ascii_digit(text[position])) {
@@ -588,8 +667,6 @@ ParsedValues parse_values(std::string_view text) {
       null_value.kind = NamelistValueKind::null;
       null_value.storage = std::string{};
       null_value.repeat = repeat;
-      null_value.original_text =
-          std::string(text.substr(value_begin, position - value_begin));
       null_value.end = position;
       result.values.push_back(std::move(null_value));
       result.last_end = position;
@@ -599,8 +676,6 @@ ParsedValues parse_values(std::string_view text) {
     }
 
     auto parsed = parse_scalar(text, position, repeat);
-    parsed.original_text =
-        std::string(text.substr(value_begin, parsed.end - value_begin));
     result.last_end = parsed.end;
     result.values.push_back(std::move(parsed));
     position = result.last_end;
@@ -608,34 +683,6 @@ ParsedValues parse_values(std::string_view text) {
     expecting_value_after_comma = false;
   }
   static_cast<void>(have_any_value);
-  return result;
-}
-
-std::string comments_before(std::string_view text, std::size_t end) {
-  std::string result;
-  std::size_t position = 0;
-  end = std::min(end, text.size());
-  while (position < end) {
-    if (text[position] == '\'' || text[position] == '"') {
-      position = std::min(skip_quoted(text, position), end);
-      continue;
-    }
-    if (line_comment_start(text, position)) {
-      auto comment_end = text.find('\n', position + 1);
-      if (comment_end == std::string_view::npos || comment_end >= end) {
-        comment_end = end;
-      } else {
-        ++comment_end;
-      }
-      result.append(text.substr(position, comment_end - position));
-      if (!result.empty() && result.back() != '\n') {
-        result.push_back('\n');
-      }
-      position = comment_end;
-      continue;
-    }
-    ++position;
-  }
   return result;
 }
 
@@ -665,76 +712,7 @@ NamelistValue make_value(const ParsedToken& parsed) {
     }
     return NamelistValue::raw({}, parsed.repeat);
   }();
-  // This function deliberately cannot alter original_text_; the caller is a
-  // KFile member (and therefore a friend) and fills it after construction.
   return value;
-}
-
-bool same_double(double left, double right) noexcept {
-  return left == right || (std::isnan(left) && std::isnan(right));
-}
-
-bool field_values_equal(const FieldValue& left, const FieldValue& right) {
-  if (left.index() != right.index()) {
-    return false;
-  }
-  return std::visit(
-      [](const auto& lhs, const auto& rhs) {
-        using Left = std::decay_t<decltype(lhs)>;
-        using Right = std::decay_t<decltype(rhs)>;
-        if constexpr (!std::is_same_v<Left, Right>) {
-          return false;
-        } else if constexpr (std::is_same_v<Left, double>) {
-          return same_double(lhs, rhs);
-        } else if constexpr (std::is_same_v<Left, DoubleVector> ||
-                             std::is_same_v<Left, IntVector> ||
-                             std::is_same_v<Left, DoubleMatrix>) {
-          if (lhs.rows() != rhs.rows() || lhs.cols() != rhs.cols()) {
-            return false;
-          }
-          for (Eigen::Index index = 0; index < lhs.size(); ++index) {
-            if constexpr (std::is_same_v<typename Left::Scalar, double>) {
-              if (!same_double(lhs.data()[index], rhs.data()[index])) {
-                return false;
-              }
-            } else if (lhs.data()[index] != rhs.data()[index]) {
-              return false;
-            }
-          }
-          return true;
-        } else {
-          return lhs == rhs;
-        }
-      },
-      left, right);
-}
-
-bool assign_preserving_array_storage(FieldValue& target,
-                                     const FieldValue& source) {
-  if (target.index() != source.index()) {
-    return false;
-  }
-  return std::visit(
-      [](auto& destination, const auto& incoming) {
-        using Destination = std::decay_t<decltype(destination)>;
-        using Incoming = std::decay_t<decltype(incoming)>;
-        if constexpr (!std::is_same_v<Destination, Incoming>) {
-          return false;
-        } else if constexpr (std::is_same_v<Destination, DoubleVector> ||
-                             std::is_same_v<Destination, IntVector> ||
-                             std::is_same_v<Destination, DoubleMatrix>) {
-          if (destination.rows() != incoming.rows() ||
-              destination.cols() != incoming.cols()) {
-            return false;
-          }
-          std::copy_n(incoming.data(), incoming.size(), destination.data());
-          return true;
-        } else {
-          destination = incoming;
-          return true;
-        }
-      },
-      target, source);
 }
 
 constexpr std::size_t kMaximumExpandedValues = 10000000;
@@ -1000,141 +978,101 @@ std::vector<NamelistValue> values_from_field(const FieldValue& field) {
 
 }  // namespace
 
-NamelistValue::NamelistValue(NamelistValueKind kind, Storage storage,
-                             std::size_t repeat, std::string original_text)
+detail::NamelistValue::NamelistValue(
+    NamelistValueKind kind, Storage storage, std::size_t repeat)
     : kind_(kind),
       storage_(std::move(storage)),
-      repeat_(repeat),
-      original_text_(std::move(original_text)) {}
+      repeat_(repeat) {}
 
-NamelistValue NamelistValue::null(std::size_t repeat) {
+detail::NamelistValue detail::NamelistValue::null(std::size_t repeat) {
   return NamelistValue(NamelistValueKind::null, std::string{}, repeat);
 }
 
-NamelistValue NamelistValue::integer(std::int64_t value,
-                                     std::size_t repeat) {
+detail::NamelistValue detail::NamelistValue::integer(
+    std::int64_t value, std::size_t repeat) {
   return NamelistValue(NamelistValueKind::integer, value, repeat);
 }
 
-NamelistValue NamelistValue::real(double value, std::size_t repeat) {
+detail::NamelistValue detail::NamelistValue::real(double value,
+                                                  std::size_t repeat) {
   return NamelistValue(NamelistValueKind::real, value, repeat);
 }
 
-NamelistValue NamelistValue::logical(bool value, std::size_t repeat) {
+detail::NamelistValue detail::NamelistValue::logical(bool value,
+                                                     std::size_t repeat) {
   return NamelistValue(NamelistValueKind::logical, value, repeat);
 }
 
-NamelistValue NamelistValue::string(std::string value, std::size_t repeat) {
+detail::NamelistValue detail::NamelistValue::string(std::string value,
+                                                    std::size_t repeat) {
   return NamelistValue(NamelistValueKind::string, std::move(value), repeat);
 }
 
-NamelistValue NamelistValue::complex(std::complex<double> value,
-                                     std::size_t repeat) {
+detail::NamelistValue detail::NamelistValue::complex(
+    std::complex<double> value, std::size_t repeat) {
   return NamelistValue(NamelistValueKind::complex, value, repeat);
 }
 
-NamelistValue NamelistValue::raw(std::string value, std::size_t repeat) {
+detail::NamelistValue detail::NamelistValue::raw(std::string value,
+                                                 std::size_t repeat) {
   return NamelistValue(NamelistValueKind::raw, std::move(value), repeat);
 }
 
-std::int64_t NamelistValue::as_integer() const {
+std::int64_t detail::NamelistValue::as_integer() const {
   if (kind_ != NamelistValueKind::integer) {
     throw FieldError("namelist value is not an integer");
   }
   return std::get<std::int64_t>(storage_);
 }
 
-double NamelistValue::as_real() const {
+double detail::NamelistValue::as_real() const {
   if (kind_ != NamelistValueKind::real) {
     throw FieldError("namelist value is not a real number");
   }
   return std::get<double>(storage_);
 }
 
-bool NamelistValue::as_logical() const {
+bool detail::NamelistValue::as_logical() const {
   if (kind_ != NamelistValueKind::logical) {
     throw FieldError("namelist value is not logical");
   }
   return std::get<bool>(storage_);
 }
 
-const std::string& NamelistValue::as_string() const {
+const std::string& detail::NamelistValue::as_string() const {
   if (kind_ != NamelistValueKind::string) {
     throw FieldError("namelist value is not a string");
   }
   return std::get<std::string>(storage_);
 }
 
-const std::complex<double>& NamelistValue::as_complex() const {
+const std::complex<double>& detail::NamelistValue::as_complex() const {
   if (kind_ != NamelistValueKind::complex) {
     throw FieldError("namelist value is not complex");
   }
   return std::get<std::complex<double>>(storage_);
 }
 
-const std::string& NamelistValue::as_raw() const {
+const std::string& detail::NamelistValue::as_raw() const {
   if (kind_ != NamelistValueKind::raw) {
     throw FieldError("namelist value is not opaque text");
   }
   return std::get<std::string>(storage_);
 }
 
-bool NamelistValue::operator==(const NamelistValue& other) const noexcept {
-  if (kind_ != other.kind_ || repeat_ != other.repeat_ ||
-      storage_.index() != other.storage_.index()) {
-    return false;
-  }
-  switch (kind_) {
-    case NamelistValueKind::real:
-      return same_double(std::get<double>(storage_),
-                         std::get<double>(other.storage_));
-    case NamelistValueKind::complex: {
-      const auto left = std::get<std::complex<double>>(storage_);
-      const auto right = std::get<std::complex<double>>(other.storage_);
-      return same_double(left.real(), right.real()) &&
-             same_double(left.imag(), right.imag());
-    }
-    default:
-      return storage_ == other.storage_;
-  }
+KFile::KFile(std::string filename)
+    : EFITFile(std::move(filename)), impl_(std::make_unique<detail::KFileImpl>()) {
+  parse(detail::read_binary_file(filename_));
 }
 
-bool NamelistEntry::modified() const noexcept {
-  return explicitly_modified_ || values_ != original_values_;
-}
-
-std::size_t NamelistSection::count(const std::string& name) const {
-  const auto normalized = ascii_upper(name);
-  return static_cast<std::size_t>(std::count_if(
-      entries_.begin(), entries_.end(), [&](const NamelistEntry& item) {
-        return item.name() == normalized;
-      }));
-}
-
-const NamelistEntry& NamelistSection::entry(const std::string& name,
-                                            std::size_t occurrence) const {
-  const auto normalized = ascii_upper(name);
-  for (const auto& item : entries_) {
-    if (item.name() == normalized) {
-      if (occurrence == 0) {
-        return item;
-      }
-      --occurrence;
-    }
-  }
-  throw FieldError("unknown namelist entry: " + normalized);
-}
-
-KFile::KFile(const std::filesystem::path& filename) : EFITFile(filename) {
-  parse(detail::read_binary_file(filename));
-}
+KFile::~KFile() = default;
+KFile::KFile(KFile&&) noexcept = default;
+KFile& KFile::operator=(KFile&&) noexcept = default;
 
 void KFile::parse(const std::string& bytes) {
-  sections_.clear();
-  outside_text_.clear();
-  raw_sections_.clear();
-  fields_.clear();
-  field_targets_.clear();
+  impl_->projected_sections.clear();
+  impl_->projected_indices.clear();
+  std::vector<NamelistSection> sections;
 
   std::size_t cursor = 0;
   while (const auto start = find_group_start(bytes, cursor)) {
@@ -1144,22 +1082,8 @@ void KFile::parse(const std::string& bytes) {
                     filename_, bytes, start->begin);
     }
 
-    outside_text_.push_back(bytes.substr(cursor, start->begin - cursor));
-    if (!outside_text_.back().empty()) {
-      raw_sections_.push_back(RawSection{
-          "outside_" + std::to_string(outside_text_.size() - 1),
-          outside_text_.back(), cursor, false});
-    }
-
     NamelistSection section;
     section.name_ = ascii_upper(start->original_name);
-    section.original_name_ = start->original_name;
-    section.opener_ = start->opener;
-    section.terminator_ = ending->spelling;
-    section.source_order_ = sections_.size();
-    section.source_offset_ = start->begin;
-    section.raw_text_ =
-        bytes.substr(start->begin, ending->end - start->begin);
 
     const auto body = std::string_view(bytes).substr(
         start->body_begin, ending->begin - start->body_begin);
@@ -1176,67 +1100,49 @@ void KFile::parse(const std::string& bytes) {
 
       NamelistEntry entry;
       entry.name_ = ascii_upper(assignment.original_name);
-      entry.original_name_ = assignment.original_name;
-      entry.designator_ = assignment.designator;
       entry.subscript_ = assignment.subscript;
-      entry.source_order_ = index;
-      entry.source_offset_ = start->body_begin + assignment.begin;
-      entry.relative_begin_ = entry.source_offset_ - start->begin;
-      entry.relative_end_ = start->body_begin + body_end - start->begin;
-      entry.raw_text_ = std::string(body.substr(
-          assignment.begin, body_end - assignment.begin));
-      entry.parsed_ = !parsed.values.empty();
-      entry.trailing_text_ =
-          std::string(value_text.substr(parsed.last_end));
-      entry.interior_comments_ = comments_before(value_text, parsed.last_end);
       entry.values_.reserve(parsed.values.size());
       for (const auto& parsed_value : parsed.values) {
-        auto value = make_value(parsed_value);
-        value.original_text_ = parsed_value.original_text;
-        entry.values_.push_back(std::move(value));
+        entry.values_.push_back(make_value(parsed_value));
       }
-      entry.original_values_ = entry.values_;
       section.entries_.push_back(std::move(entry));
     }
-    sections_.push_back(std::move(section));
+    sections.push_back(std::move(section));
     cursor = ending->end;
   }
 
-  outside_text_.push_back(bytes.substr(cursor));
-  if (!outside_text_.back().empty()) {
-    raw_sections_.push_back(
-        RawSection{"outside_" + std::to_string(outside_text_.size() - 1),
-                   outside_text_.back(), cursor, false});
-  }
-  if (sections_.empty()) {
+  if (sections.empty()) {
     parse_failure("no Fortran namelist section found", filename_, bytes, 0);
   }
-  rebuild_fields();
-}
 
-void KFile::rebuild_fields() {
-  fields_.clear();
-  field_targets_.clear();
+  std::vector<std::unordered_map<std::string, std::size_t>> target_indices;
+  for (std::size_t section_index = 0;
+       section_index < sections.size(); ++section_index) {
+    const auto& section = sections[section_index];
+    auto found = impl_->projected_indices.find(section.name());
+    std::size_t projection_index = 0;
+    if (found == impl_->projected_indices.end()) {
+      projection_index = impl_->projected_sections.size();
+      impl_->projected_indices.emplace(section.name(), projection_index);
+      impl_->projected_sections.push_back(
+          detail::ProjectedSection{section.name(), {}, {}});
+      target_indices.emplace_back();
+    } else {
+      projection_index = found->second;
+    }
 
-  // Determine the effective (last) assignment for every name before expanding
-  // repetitions.  This prevents a chain of duplicate assignments from
-  // repeatedly allocating large temporary vectors that are immediately
-  // discarded.  The ordered section/entry model remains untouched.
-  std::vector<std::pair<std::string, FieldTarget>> effective_targets;
-  std::unordered_map<std::string, std::size_t> effective_indices;
-  for (std::size_t section_index = 0; section_index < sections_.size();
-       ++section_index) {
-    const auto& section = sections_[section_index];
-    for (std::size_t entry_index = 0; entry_index < section.entries_.size();
-         ++entry_index) {
+    auto& projection = impl_->projected_sections[projection_index];
+    auto& indices = target_indices[projection_index];
+    for (std::size_t entry_index = 0;
+         entry_index < section.entries_.size(); ++entry_index) {
       const auto& name = section.entries_[entry_index].name();
       const auto [position, inserted] =
-          effective_indices.emplace(name, effective_targets.size());
+          indices.emplace(name, projection.targets.size());
       if (inserted) {
-        effective_targets.push_back(
+        projection.targets.push_back(
             {name, FieldTarget{section_index, entry_index}});
       } else {
-        effective_targets[position->second].second =
+        projection.targets[position->second].second =
             FieldTarget{section_index, entry_index};
       }
     }
@@ -1244,249 +1150,84 @@ void KFile::rebuild_fields() {
 
   std::size_t expanded_total = 0;
   std::size_t string_bytes_total = 0;
-  for (const auto& item : effective_targets) {
-    const auto& target = item.second;
-    const auto& entry = sections_[target.section].entries_[target.entry];
-    const auto available_values = kMaximumExpandedValues - expanded_total;
-    const auto available_string_bytes =
-        kMaximumExpandedStringBytes - string_bytes_total;
-    auto value = field_from_entry(entry, available_values,
-                                  available_string_bytes);
-    if (!value) {
-      continue;
-    }
-    expanded_total += field_element_count(*value);
-    string_bytes_total += field_string_storage_bytes(*value);
-    fields_.insert(item.first, std::move(*value), false, fields_.size());
-    field_targets_.push_back(item);
-  }
-}
-
-void KFile::refresh_field(const std::string& name) {
-  const auto normalized = ascii_upper(name);
-  FieldTarget target;
-  bool found = false;
-  std::size_t other_expanded = 0;
-  std::size_t other_string_bytes = 0;
-  for (const auto& field : fields_) {
-    if (field.name != normalized) {
-      const auto count = field_element_count(field.value);
-      if (count > kMaximumExpandedValues - other_expanded) {
-        other_expanded = kMaximumExpandedValues;
-      } else {
-        other_expanded += count;
-      }
-      const auto string_bytes = field_string_storage_bytes(field.value);
-      if (string_bytes >
-          kMaximumExpandedStringBytes - other_string_bytes) {
-        other_string_bytes = kMaximumExpandedStringBytes;
-      } else {
-        other_string_bytes += string_bytes;
-      }
-    }
-  }
-  const auto available_values = kMaximumExpandedValues - other_expanded;
-  const auto available_string_bytes =
-      kMaximumExpandedStringBytes - other_string_bytes;
-  const NamelistEntry* effective_entry = nullptr;
-  for (std::size_t section_index = 0; section_index < sections_.size();
-       ++section_index) {
-    const auto& section = sections_[section_index];
-    for (std::size_t entry_index = 0; entry_index < section.entries_.size();
-         ++entry_index) {
-      const auto& item = section.entries_[entry_index];
-      if (item.name() != normalized) {
+  for (auto& projection : impl_->projected_sections) {
+    for (const auto& target_item : projection.targets) {
+      const auto& target = target_item.second;
+      const auto& entry =
+          sections[target.section].entries_[target.entry];
+      const auto available_values = kMaximumExpandedValues - expanded_total;
+      const auto available_string_bytes =
+          kMaximumExpandedStringBytes - string_bytes_total;
+      auto value = field_from_entry(entry, available_values,
+                                    available_string_bytes);
+      if (!value) {
         continue;
       }
-      found = true;
-      effective_entry = &item;
-      target = FieldTarget{section_index, entry_index};
+      expanded_total += field_element_count(*value);
+      string_bytes_total += field_string_storage_bytes(*value);
+      projection.fields.insert(target_item.first, std::move(*value));
     }
-  }
-  auto value = found ? field_from_entry(*effective_entry, available_values,
-                                        available_string_bytes)
-                     : std::optional<FieldValue>{};
-
-  auto old_target = std::find_if(
-      field_targets_.begin(), field_targets_.end(),
-      [&](const auto& item) { return item.first == normalized; });
-  if (!found || !value) {
-    fields_.erase(normalized);
-    if (old_target != field_targets_.end()) {
-      field_targets_.erase(old_target);
-    }
-    return;
-  }
-  if (fields_.contains(normalized)) {
-    auto& current = fields_.at(normalized);
-    if (!assign_preserving_array_storage(current, *value)) {
-      fields_.set(normalized, std::move(*value));
-    }
-  } else {
-    fields_.insert(normalized, std::move(*value), false, fields_.size());
-  }
-  if (old_target == field_targets_.end()) {
-    field_targets_.push_back({normalized, target});
-  } else {
-    old_target->second = target;
+    projection.targets.clear();
+    projection.targets.shrink_to_fit();
   }
 }
 
-std::size_t KFile::section_count(const std::string& name) const {
-  const auto normalized = ascii_upper(name);
-  return static_cast<std::size_t>(std::count_if(
-      sections_.begin(), sections_.end(), [&](const NamelistSection& item) {
-        return item.name() == normalized;
-      }));
+bool KFile::contains(const std::string& section_name) const {
+  return impl_->projected_indices.count(ascii_upper(section_name)) != 0;
 }
 
-const NamelistSection& KFile::section(const std::string& name,
-                                      std::size_t occurrence) const {
-  const auto normalized = ascii_upper(name);
-  for (const auto& item : sections_) {
-    if (item.name() == normalized) {
-      if (occurrence == 0) {
-        return item;
-      }
-      --occurrence;
-    }
+std::size_t KFile::size() const noexcept {
+  return impl_->projected_sections.size();
+}
+
+FieldMap& KFile::at(const std::string& section_name) {
+  const auto normalized = ascii_upper(section_name);
+  const auto found = impl_->projected_indices.find(normalized);
+  if (found == impl_->projected_indices.end()) {
+    throw FieldError("unknown namelist section: " + normalized);
   }
-  throw FieldError("unknown namelist section: " + normalized);
+  return impl_->projected_sections[found->second].fields;
 }
 
-const NamelistEntry& KFile::entry(const std::string& section_name,
-                                  const std::string& name,
-                                  std::size_t occurrence,
-                                  std::size_t section_occurrence) const {
-  return section(section_name, section_occurrence).entry(name, occurrence);
-}
-
-void KFile::set(const std::string& section_name, const std::string& name,
-                std::vector<NamelistValue> values,
-                std::size_t occurrence,
-                std::size_t section_occurrence) {
-  const auto normalized_section = ascii_upper(section_name);
-  const auto normalized_name = ascii_upper(name);
-  for (auto& section_item : sections_) {
-    if (section_item.name() != normalized_section) {
-      continue;
-    }
-    if (section_occurrence != 0) {
-      --section_occurrence;
-      continue;
-    }
-    for (auto& entry_item : section_item.entries_) {
-      if (entry_item.name() == normalized_name) {
-        if (occurrence == 0) {
-          entry_item.values_ = std::move(values);
-          entry_item.parsed_ = true;
-          entry_item.explicitly_modified_ = true;
-          refresh_field(normalized_name);
-          return;
-        }
-        --occurrence;
-      }
-    }
-    throw FieldError("unknown namelist entry: " + normalized_name);
+const FieldMap& KFile::at(const std::string& section_name) const {
+  const auto normalized = ascii_upper(section_name);
+  const auto found = impl_->projected_indices.find(normalized);
+  if (found == impl_->projected_indices.end()) {
+    throw FieldError("unknown namelist section: " + normalized);
   }
-  throw FieldError("unknown namelist section: " + normalized_section);
+  return impl_->projected_sections[found->second].fields;
 }
 
-bool KFile::contains(const std::string& name) const {
-  return fields_.contains(ascii_upper(name));
+std::vector<std::string> KFile::keys() const {
+  std::vector<std::string> result;
+  result.reserve(impl_->projected_sections.size());
+  for (const auto& section : impl_->projected_sections) {
+    result.push_back(section.name);
+  }
+  return result;
 }
 
-FieldValue& KFile::at(const std::string& name) {
-  return fields_.at(ascii_upper(name));
-}
-
-const FieldValue& KFile::at(const std::string& name) const {
-  return fields_.at(ascii_upper(name));
-}
-
-std::string KFile::serialize_section(std::size_t section_index) const {
-  const auto& section_item = sections_.at(section_index);
+void KFile::write(const std::string& path) const {
   std::string output;
-  std::size_t previous = 0;
-
-  for (std::size_t entry_index = 0;
-       entry_index < section_item.entries_.size(); ++entry_index) {
-    const auto& entry_item = section_item.entries_[entry_index];
-    if (entry_item.relative_begin_ < previous ||
-        entry_item.relative_end_ < entry_item.relative_begin_ ||
-        entry_item.relative_end_ > section_item.raw_text_.size()) {
-      throw ValidationError("invalid stored K-file source ranges");
-    }
-    output.append(section_item.raw_text_, previous,
-                  entry_item.relative_begin_ - previous);
-
-    const std::vector<NamelistValue>* replacement = nullptr;
-    std::vector<NamelistValue> field_replacement;
-    const auto target = std::find_if(
-        field_targets_.begin(), field_targets_.end(), [&](const auto& item) {
-          return item.second.section == section_index &&
-                 item.second.entry == entry_index;
-        });
-    if (target != field_targets_.end() && fields_.contains(target->first)) {
-      const auto& current = fields_.at(target->first);
-      const auto entry_field = field_from_entry(entry_item);
-      if (!entry_field || !field_values_equal(current, *entry_field)) {
-        field_replacement = values_from_field(current);
-        replacement = &field_replacement;
-      }
-    }
-    if (replacement == nullptr && entry_item.modified()) {
-      replacement = &entry_item.values_;
-    }
-
-    if (replacement == nullptr) {
-      output += entry_item.raw_text_;
-    } else {
-      output += entry_item.name_;
-      if (!entry_item.subscript_.empty()) {
-        output.push_back('(');
-        output += entry_item.subscript_;
-        output.push_back(')');
-      }
+  for (const auto& section : impl_->projected_sections) {
+    output += '&';
+    output += section.name;
+    output += '\n';
+    for (const auto& field : section.fields) {
+      output += "  ";
+      output += field.name;
       output += " = ";
-      for (std::size_t value_index = 0; value_index < replacement->size();
-           ++value_index) {
-        if (value_index != 0) {
+      const auto values = values_from_field(field.value);
+      for (std::size_t index = 0; index < values.size(); ++index) {
+        if (index != 0) {
           output += ", ";
         }
-        output += serialize_value((*replacement)[value_index]);
+        output += serialize_value(values[index]);
       }
-      if (!entry_item.interior_comments_.empty()) {
-        output.push_back('\n');
-        output += entry_item.interior_comments_;
-      }
-      output += entry_item.trailing_text_;
+      output += '\n';
     }
-    previous = entry_item.relative_end_;
+    output += "/\n";
   }
-  output.append(section_item.raw_text_, previous, std::string::npos);
-  return output;
-}
-
-void KFile::write(const std::filesystem::path& path) const {
-  for (const auto& field : fields_) {
-    const auto target = std::find_if(
-        field_targets_.begin(), field_targets_.end(),
-        [&](const auto& item) { return item.first == field.name; });
-    if (target == field_targets_.end()) {
-      throw ValidationError("K-file field has no namelist entry: " +
-                            field.name);
-    }
-  }
-  if (outside_text_.size() != sections_.size() + 1) {
-    throw ValidationError("invalid stored K-file document structure");
-  }
-  std::string output;
-  for (std::size_t index = 0; index < sections_.size(); ++index) {
-    output += outside_text_[index];
-    output += serialize_section(index);
-  }
-  output += outside_text_.back();
   detail::write_binary_file(path, output);
 }
 

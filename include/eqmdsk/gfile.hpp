@@ -1,6 +1,5 @@
 #pragma once
 
-#include <filesystem>
 #include <optional>
 #include <string>
 
@@ -9,13 +8,13 @@
 
 namespace eqmdsk {
 
-class GFile final : public EFITFile {
+class GFile final : public FieldFile {
  public:
-  explicit GFile(const std::filesystem::path& filename);
+  explicit GFile(std::string filename);
 
-  using EFITFile::write;
+  using FieldFile::write;
   const char* format_name() const noexcept override { return "GFile"; }
-  void write(const std::filesystem::path& path) const override;
+  void write(const std::string& path) const override;
 
   const CocosResult& cocos() const noexcept { return cocos_; }
   void select_cocos(int source);
@@ -23,21 +22,12 @@ class GFile final : public EFITFile {
   GFile converted_to_cocos(
       int target, std::optional<int> from_cocos = std::nullopt) const;
 
-  const std::string& extra_header() const noexcept { return extra_header_; }
-  const std::string& extension_tail() const noexcept { return extension_tail_; }
-
  private:
   void parse(const std::string& bytes);
   void validate_for_write() const;
   void detect_cocos();
 
   int idum_ = 0;
-  std::string preamble_;
-  std::string header_suffix_;
-  std::string extra_header_;
-  std::string extension_tail_;
-  std::size_t original_nw_ = 0;
-  std::size_t original_nh_ = 0;
   CocosResult cocos_;
 };
 

@@ -13,10 +13,14 @@ namespace eqmdsk::detail {
 // supported platform. Invalid byte sequences are replaced rather than passed
 // into language bindings unchanged.
 std::string path_for_diagnostic(const std::filesystem::path& path);
+std::string path_for_diagnostic(const std::string& path);
+std::filesystem::path path_from_string(const std::string& path);
 
 std::string read_binary_file(const std::filesystem::path& path);
+std::string read_binary_file(const std::string& path);
 void write_binary_file(const std::filesystem::path& path,
                        const std::string& bytes);
+void write_binary_file(const std::string& path, const std::string& bytes);
 
 std::string trim_copy(std::string_view value);
 std::string rtrim_copy(std::string_view value);

@@ -1,22 +1,5 @@
-# pybind11 extension classes use pybind11_type instead of Python's type.
-eqmdsk\.AFile
-eqmdsk\.CocosResult
-eqmdsk\.EFITFile
-eqmdsk\.FieldMap
-eqmdsk\.GFile
-eqmdsk\.KFile
-eqmdsk\.NamelistEntry
-eqmdsk\.NamelistSection
-eqmdsk\.NamelistValue
-eqmdsk\.NamelistValueKind
-eqmdsk\.RawSection
-eqmdsk\.SFile
-
-# These pybind11 classes deliberately expose no public constructor. Runtime
-# introspection represents that state as a generic failing (*args, **kwargs)
-# constructor, which cannot be expressed without making the stub constructible.
-eqmdsk\.EFITFile\.__init__
-eqmdsk\.NamelistEntry\.__init__
-eqmdsk\.NamelistSection\.__init__
-eqmdsk\.NamelistValue\.__init__
-eqmdsk\.RawSection\.__init__
+eqmdsk\.(AFile|CocosResult|GFile|KFile|KSection|SFile)
+eqmdsk\.CocosResult\.(candidates|diagnostic|selected)
+eqmdsk\.GFile\.cocos
+eqmdsk\.KFile\.filename
+eqmdsk\.KSection\.__init__

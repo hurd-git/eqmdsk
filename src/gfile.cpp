@@ -219,8 +219,8 @@ void multiply_matrix(FieldMap& fields, const char* name, double factor) {
 
 }  // namespace
 
-GFile::GFile(const std::filesystem::path& filename) : EFITFile(filename) {
-  parse(detail::read_binary_file(filename));
+GFile::GFile(std::string filename) : FieldFile(std::move(filename)) {
+  parse(detail::read_binary_file(filename_));
   detect_cocos();
 }
 
@@ -228,9 +228,6 @@ void GFile::parse(const std::string& bytes) {
   const auto diagnostic_filename = detail::path_for_diagnostic(filename_);
   const auto header = find_header(bytes, diagnostic_filename);
   idum_ = header.idum;
-  preamble_ = header.preamble;
-  header_suffix_ = header.suffix;
-  extra_header_ = preamble_ + header_suffix_;
 
   std::size_t nw = 0;
   std::size_t nh = 0;
@@ -243,8 +240,6 @@ void GFile::parse(const std::string& bytes) {
   if (nw == 0 || nh == 0) {
     throw ParseError("NW and NH must be positive", diagnostic_filename, 1, 1);
   }
-  original_nw_ = nw;
-  original_nh_ = nh;
   std::size_t grid_size = 0;
   try {
     grid_size = detail::checked_product(nw, nh, "PSIRZ");
@@ -349,20 +344,8 @@ void GFile::parse(const std::string& bytes) {
   fields_.insert("RLIM", std::move(rlim), true, 24);
   fields_.insert("ZLIM", std::move(zlim), true, 25);
 
-  const auto tail_offset = cursor.position_after_line_ending();
-  extension_tail_ = bytes.substr(tail_offset);
-  if (!preamble_.empty()) {
-    raw_sections_.push_back(
-        RawSection{"preamble", preamble_, 0, false});
-  }
-  if (!header_suffix_.empty()) {
-    raw_sections_.push_back(RawSection{"header_suffix", header_suffix_,
-                                       header.header_offset + 60, false});
-  }
-  if (!extension_tail_.empty()) {
-    raw_sections_.push_back(
-        RawSection{"extension_tail", extension_tail_, tail_offset, false});
-  }
+  // Additional producer-specific data is accepted but intentionally omitted
+  // by the canonical writer.
 }
 
 void GFile::validate_for_write() const {
@@ -392,12 +375,6 @@ void GFile::validate_for_write() const {
                      return character >= 0x20 && character <= 0x7e;
                    })) {
     throw ValidationError("CASE must contain printable ASCII");
-  }
-  if (!extension_tail_.empty() &&
-      (nw != original_nw_ || nh != original_nh_)) {
-    throw ValidationError(
-        "NW/NH cannot change while an opaque dimension-dependent extension "
-        "tail is present");
   }
   for (const auto* name : {"FPOL", "PRES", "FFPRIM", "PPRIME", "QPSI"}) {
     if (static_cast<std::size_t>(require<DoubleVector>(fields_, name).size()) !=
@@ -431,7 +408,7 @@ void GFile::validate_for_write() const {
   }
 }
 
-void GFile::write(const std::filesystem::path& path) const {
+void GFile::write(const std::string& path) const {
   validate_for_write();
   const auto nw = static_cast<std::size_t>(require<std::int64_t>(fields_, "NW"));
   const auto nh = static_cast<std::size_t>(require<std::int64_t>(fields_, "NH"));
@@ -440,7 +417,7 @@ void GFile::write(const std::filesystem::path& path) const {
   const auto limitr =
       static_cast<std::size_t>(require<std::int64_t>(fields_, "LIMITR"));
 
-  std::string output = preamble_;
+  std::string output;
   auto case_text = require<std::string>(fields_, "CASE");
   output += case_text;
   output.append(48 - case_text.size(), ' ');
@@ -448,7 +425,6 @@ void GFile::write(const std::filesystem::path& path) const {
   integers.imbue(std::locale::classic());
   integers << std::setw(4) << idum_ << std::setw(4) << nw << std::setw(4) << nh;
   output += integers.str();
-  output += header_suffix_;
   output += '\n';
 
   detail::FortranRealWriter writer(output);
@@ -501,7 +477,6 @@ void GFile::write(const std::filesystem::path& path) const {
     writer.value(zlim[static_cast<Eigen::Index>(i)]);
   }
   writer.finish_line();
-  output += extension_tail_;
   detail::write_binary_file(path, output);
 }
 
@@ -607,11 +582,7 @@ GFile& GFile::to_cocos(int target, std::optional<int> from_cocos) {
   multiply_vector(fields_, "PPRIME", bp * phi / scale);
   multiply_vector(fields_, "FFPRIM", bp * phi / scale);
   multiply_vector(fields_, "QPSI", rho);
-  cocos_ = CocosResult(target, {target},
-                       extension_tail_.empty()
-                           ? "converted"
-                           : "converted; opaque extension tail was preserved "
-                             "without COCOS transformation");
+  cocos_ = CocosResult(target, {target}, "converted");
   return *this;
 }
 

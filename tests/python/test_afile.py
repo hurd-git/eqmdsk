@@ -6,7 +6,7 @@ import pytest
 
 import eqmdsk
 
-WORKSPACE_DATA = Path(__file__).resolve().parents[3] / "data"
+WORKSPACE_DATA = Path(__file__).resolve().parents[2] / "data"
 REAL_AFILE = WORKSPACE_DATA / "a067590.03300"
 
 
@@ -56,7 +56,6 @@ def test_synthetic_afile_and_three_digit_exponent_roundtrip(tmp_path):
 
     afile = eqmdsk.AFile(source)
     assert afile["SHOT"] == 1
-    assert afile.optional_record_count == 0
     assert afile["RCO2V"].shape == (3,)
     np.testing.assert_array_equal(afile["RCO2V"], [10.0, 11.0, 12.0])
     np.testing.assert_array_equal(afile["CSILOP"], [21.0])
@@ -136,7 +135,6 @@ def test_afile_all_optional_records_and_errors(tmp_path):
     source = tmp_path / "a.optional"
     _synthetic_afile(source, optional_count=15)
     afile = eqmdsk.AFile(source)
-    assert afile.optional_record_count == 15
     assert afile["PBINJ"] == 100.0
     assert afile["TWAGAP"] == 159.0
 
@@ -160,10 +158,10 @@ def test_afile_all_optional_records_and_errors(tmp_path):
 
 
 @pytest.mark.skipif(not REAL_AFILE.exists(), reason="local EFIT fixture unavailable")
-def test_real_afile_fields_footer_and_roundtrip(tmp_path):
+def test_real_afile_fields_and_semantic_roundtrip(tmp_path):
     afile = eqmdsk.AFile(REAL_AFILE)
 
-    assert afile.filename == REAL_AFILE
+    assert afile.filename == str(REAL_AFILE)
     assert afile["SHOT"] == 67590
     assert afile["TIME"] == pytest.approx(3300.0)
     assert afile["LIMLOC"] == "SNT"
@@ -182,9 +180,6 @@ def test_real_afile_fields_footer_and_roundtrip(tmp_path):
     assert afile["CMPR2"].shape == (76,)
     assert afile["CCBRSP"].shape == (12,)
     assert afile["ECCURT"].shape == (1,)
-    assert afile.optional_record_count == 14
-    assert afile.footer.endswith(b" MAG\n")
-    assert b"\0" in afile.footer
 
     output = tmp_path / "a-roundtrip.any-suffix"
     afile["CHISQ"] = 12.5
@@ -194,8 +189,6 @@ def test_real_afile_fields_footer_and_roundtrip(tmp_path):
     reparsed = eqmdsk.AFile(output)
     assert reparsed["CHISQ"] == pytest.approx(12.5)
     assert reparsed["RCO2V"][1] == pytest.approx(-3.25)
-    assert reparsed.optional_record_count == 14
-    assert reparsed.footer == afile.footer
 
 
 @pytest.mark.skipif(not REAL_AFILE.exists(), reason="local EFIT fixture unavailable")
