@@ -183,6 +183,21 @@ def test_cocos_selection_copy_and_inplace(tmp_path):
     with pytest.raises(eqmdsk.CocosError) as ambiguous:
         gfile.to_cocos(11)
     assert ambiguous.value.result.candidates == [5, 6, 15, 16]
+
+    converted = gfile.to_cocos(to_cocos=15, from_cocos=5, inplace=False)
+    assert converted is not gfile
+    assert converted.cocos.selected == 15
+    assert gfile.cocos.candidates == [5, 6, 15, 16]
+    np.testing.assert_allclose(converted["PSIRZ"], gfile["PSIRZ"] * (2 * np.pi))
+    np.testing.assert_allclose(converted["PPRIME"], gfile["PPRIME"] / (2 * np.pi))
+
+    unchanged = gfile.to_cocos(5, 5, False)
+    assert unchanged.cocos.selected == 5
+    np.testing.assert_array_equal(unchanged["PSIRZ"], gfile["PSIRZ"])
+
+    with pytest.raises(eqmdsk.CocosError, match="unsupported"):
+        gfile.to_cocos(11, from_cocos=9)
+
     with pytest.raises(eqmdsk.CocosError) as invalid_source:
         gfile.select_cocos(1)
     assert invalid_source.value.result.candidates == [5, 6, 15, 16]
@@ -326,3 +341,7 @@ def test_cocos_unknown_and_invalid_q_are_diagnostic(tmp_path):
     mixed_q = eqmdsk.GFile(path)
     assert mixed_q.cocos.candidates == []
     assert "mixed signs" in mixed_q.cocos.diagnostic
+
+    converted = mixed_q.to_cocos(to_cocos=11, from_cocos=5, inplace=False)
+    assert converted.cocos.selected == 11
+    assert mixed_q.cocos.candidates == []

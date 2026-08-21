@@ -1,6 +1,7 @@
 #pragma once
 
 #include <filesystem>
+#include <optional>
 #include <string>
 
 #include "eqmdsk/cocos.hpp"
@@ -18,8 +19,9 @@ class GFile final : public EFITFile {
 
   const CocosResult& cocos() const noexcept { return cocos_; }
   void select_cocos(int source);
-  GFile& to_cocos(int target);
-  GFile converted_to_cocos(int target) const;
+  GFile& to_cocos(int target, std::optional<int> from_cocos = std::nullopt);
+  GFile converted_to_cocos(
+      int target, std::optional<int> from_cocos = std::nullopt) const;
 
   const std::string& extra_header() const noexcept { return extra_header_; }
   const std::string& extension_tail() const noexcept { return extension_tail_; }

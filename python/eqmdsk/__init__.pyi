@@ -348,8 +348,13 @@ class GFile(EFITFile):
     @property
     def cocos(self) -> CocosResult: ...
     def select_cocos(self, source: int) -> None: ...
-    def to_cocos(self, target: int, inplace: bool = True) -> GFile:
-        """Convert convention-dependent fields after selecting a valid source."""
+    def to_cocos(
+        self,
+        to_cocos: int,
+        from_cocos: Optional[int] = None,
+        inplace: bool = True,
+    ) -> GFile:
+        """Convert fields from an explicit or previously selected convention."""
         ...
     @property
     def extra_header(self) -> bytes: ...

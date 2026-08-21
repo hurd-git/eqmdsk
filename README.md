@@ -35,17 +35,20 @@ print([section.name for section in kfile.sections])
 print(kfile.entry("IN1", "XLIM").values)
 ```
 
-G-file 没有足够的元数据来区分全部 COCOS 约定，因此检测通常会返回多个候选。转换前
-必须从已检测候选中显式选择来源：
+G-file 没有足够的元数据来区分全部 COCOS 约定，因此检测通常会返回多个候选。可以
+在转换时显式给出来源，或者先从已检测候选中选择来源：
 
 ```python
 print(gfile.cocos.candidates)
-gfile.select_cocos(5)
-converted = gfile.to_cocos(11, inplace=False)
+converted = gfile.to_cocos(to_cocos=11, from_cocos=5, inplace=False)
+
+gfile.select_cocos(5)  # 之后可以省略 from_cocos
+gfile.to_cocos(11)
 ```
 
-`to_cocos()` 不会猜测有歧义的来源。发生 `CocosError` 时，原始检测结果保存在
-`error.result` 中。
+`from_cocos=None` 时，`to_cocos()` 使用对象当前唯一或已显式选择的 COCOS；只有该
+来源仍不明确时才抛出 `CocosError`。原始检测结果保存在 `error.result` 中。参数名
+使用 `from_cocos` 是因为 `from` 是 Python 保留关键字。
 
 ## 数组所有权
 

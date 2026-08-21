@@ -565,13 +565,16 @@ void GFile::select_cocos(int source) {
   cocos_ = CocosResult(source, {source}, "source COCOS explicitly selected");
 }
 
-GFile& GFile::to_cocos(int target) {
+GFile& GFile::to_cocos(int target, std::optional<int> from_cocos) {
   const auto& destination = convention(target);
-  if (!cocos_.is_unique()) {
+  if (!from_cocos.has_value() && !cocos_.is_unique()) {
     throw CocosError("source COCOS is ambiguous or unknown", cocos_);
   }
-  const auto& source = convention(cocos_.selected());
+  const int source_number =
+      from_cocos.has_value() ? *from_cocos : cocos_.selected();
+  const auto& source = convention(source_number);
   if (source.number == destination.number) {
+    cocos_ = CocosResult(target, {target}, "source and target COCOS are equal");
     return *this;
   }
 
@@ -612,9 +615,10 @@ GFile& GFile::to_cocos(int target) {
   return *this;
 }
 
-GFile GFile::converted_to_cocos(int target) const {
+GFile GFile::converted_to_cocos(int target,
+                                std::optional<int> from_cocos) const {
   GFile result(*this);
-  result.to_cocos(target);
+  result.to_cocos(target, from_cocos);
   return result;
 }
 

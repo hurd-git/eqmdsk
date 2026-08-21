@@ -67,15 +67,27 @@ print(result.candidates, result.diagnostic)
 if result.is_unique():
     print(result.selected)
 else:
-    g.select_cocos(5)  # must be one of result.candidates
+    copy = g.to_cocos(to_cocos=11, from_cocos=5, inplace=False)
 
-copy = g.to_cocos(11, inplace=False)
+g.select_cocos(5)  # must be one of result.candidates
+copy = g.to_cocos(11, inplace=False)  # uses g.cocos.selected
 same_object = g.to_cocos(11)  # inplace=True by default
 assert same_object is g
 ```
 
-`selected` raises `CocosError` until the source is unique or explicitly
-selected. Conversion changes only the convention-dependent stored fields:
+`to_cocos(to_cocos, from_cocos=None, inplace=True)` uses an explicit
+`from_cocos` when provided. Otherwise it uses the object's unique or explicitly
+selected `cocos`; only an absent or ambiguous default source raises
+`CocosError`. (`from` itself cannot be a Python parameter name because it is a
+reserved keyword.) An explicit source may be any supported numbered convention
+and overrides detection; `select_cocos()` remains limited to detected
+candidates.
+
+The equivalent C++ methods are
+`GFile::to_cocos(int target, std::optional<int> from_cocos)` for in-place
+conversion and `GFile::converted_to_cocos(...)` for a converted copy.
+
+Conversion changes only the convention-dependent stored fields:
 `CURRENT`, `BCENTR`, `FPOL`, `SIMAG`, `SIBRY`, `PSIRZ`, `PPRIME`, `FFPRIM`, and
 `QPSI`. Geometry, pressure, and opaque extension bytes are retained without
 interpretation.

@@ -287,14 +287,16 @@ PYBIND11_MODULE(_core, module) {
                              py::return_value_policy::reference_internal)
       .def("select_cocos", &eqmdsk::GFile::select_cocos, py::arg("source"))
       .def("to_cocos",
-           [](eqmdsk::GFile& self, int target, bool inplace) -> py::object {
+           [](eqmdsk::GFile& self, int target,
+              const std::optional<int>& from_cocos, bool inplace) -> py::object {
              if (inplace) {
-               self.to_cocos(target);
+               self.to_cocos(target, from_cocos);
                return py::cast(&self, py::return_value_policy::reference);
              }
-             return py::cast(self.converted_to_cocos(target));
+             return py::cast(self.converted_to_cocos(target, from_cocos));
            },
-           py::arg("target"), py::arg("inplace") = true)
+           py::arg("to_cocos"), py::arg("from_cocos") = py::none(),
+           py::arg("inplace") = true)
       .def_property_readonly("extra_header", [](const eqmdsk::GFile& self) {
         return py::bytes(self.extra_header());
       })

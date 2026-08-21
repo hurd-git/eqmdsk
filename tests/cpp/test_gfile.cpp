@@ -85,6 +85,25 @@ int main() {
   assert(get<std::int64_t>(synthetic, "NH") == 2);
   assert(get<eqmdsk::DoubleMatrix>(synthetic, "PSIRZ")(1, 2) == 202.0);
   assert(synthetic.extension_tail().find('\0') != std::string::npos);
+
+  bool ambiguous_cocos_rejected = false;
+  try {
+    static_cast<void>(synthetic.converted_to_cocos(11));
+  } catch (const eqmdsk::CocosError&) {
+    ambiguous_cocos_rejected = true;
+  }
+  assert(ambiguous_cocos_rejected);
+
+  const auto explicit_cocos = synthetic.converted_to_cocos(15, 5);
+  assert(explicit_cocos.cocos().selected() == 15);
+  assert(synthetic.cocos().is_ambiguous());
+  assert(close(get<eqmdsk::DoubleMatrix>(explicit_cocos, "PSIRZ")(1, 2),
+               202.0 * 2.0 * std::acos(-1.0)));
+
+  const auto unchanged_cocos = synthetic.converted_to_cocos(5, 5);
+  assert(unchanged_cocos.cocos().selected() == 5);
+  assert(get<eqmdsk::DoubleMatrix>(unchanged_cocos, "PSIRZ")(1, 2) == 202.0);
+
   std::get<double>(synthetic.at("CURRENT")) = -1.0e100;
   synthetic.write(synthetic_output);
   eqmdsk::GFile synthetic_reparsed(synthetic_output);

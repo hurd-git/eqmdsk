@@ -18,6 +18,8 @@ Semantic Versioning, with the documented pre-1.0 compatibility allowance.
   the surrogate path before the library can receive it.
 - Prepare one tag's sdist and multi-platform wheels for a future synchronized
   PyPI publication and GitHub Release.
+- Add `to_cocos` and `from_cocos` parameters to `GFile.to_cocos()`; when
+  `from_cocos` is omitted, use the file's unique or explicitly selected result.
 
 ## [0.9.0] - 2026-08-20
 

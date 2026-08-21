@@ -23,7 +23,9 @@ def check_gfile(g: eqmdsk.GFile) -> None:
     nw: int = g["NW"]
     current: float = g["CURRENT"]
     psi: NDArray[np.float64] = g["PSIRZ"]
-    converted: eqmdsk.GFile = g.to_cocos(11, inplace=False)
+    converted: eqmdsk.GFile = g.to_cocos(
+        to_cocos=11, from_cocos=5, inplace=False
+    )
     result: eqmdsk.CocosResult = g.cocos
     target: Path = g.filename
     _ = (case, nw, current, psi, converted, result, target)

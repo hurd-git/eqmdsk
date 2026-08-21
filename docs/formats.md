@@ -34,9 +34,11 @@ for three-digit exponents. Data after the standard boundary block is an opaque
 binary `extension_tail`; dimensions cannot change while such a tail is present.
 
 `cocos` always returns `CocosResult`. `select_cocos(source)` accepts only a
-detected candidate. Conversion currently applies only to G-files and transforms
-`CURRENT`, `BCENTR`, `FPOL`, `SIMAG`, `SIBRY`, `PSIRZ`, `PPRIME`, `FFPRIM`, and
-`QPSI`; geometry and pressure remain unchanged.
+detected candidate. `to_cocos(to_cocos, from_cocos=None, inplace=True)` accepts
+an explicit supported source or, when omitted, requires the object's COCOS
+result to be unique or explicitly selected. Conversion currently applies only
+to G-files and transforms `CURRENT`, `BCENTR`, `FPOL`, `SIMAG`, `SIBRY`,
+`PSIRZ`, `PPRIME`, `FFPRIM`, and `QPSI`; geometry and pressure remain unchanged.
 
 ## AFile
 
