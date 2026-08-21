@@ -20,6 +20,8 @@ Semantic Versioning, with the documented pre-1.0 compatibility allowance.
   PyPI publication and GitHub Release.
 - Add `to_cocos` and `from_cocos` parameters to `GFile.to_cocos()`; when
   `from_cocos` is omitted, use the file's unique or explicitly selected result.
+- Set platform-appropriate macOS deployment targets for filesystem-enabled
+  Intel and arm64 wheels.
 
 ## [0.9.0] - 2026-08-20
 

@@ -19,6 +19,10 @@ states the minimum (`>=3.9`) rather than rejecting future CPython versions;
 versions newer than the tested range are not guaranteed until added to CI.
 Expanding the matrix must not add format-specific compatibility layers.
 
+The native macOS wheels use deployment targets of macOS 10.15 for Intel and
+macOS 11.0 for arm64. These minimums are required by the C++17
+`std::filesystem` implementation used by the public API.
+
 ## Stable 0.9 API surface
 
 The compatibility focus is constructors, exact path writing, mapping access,
@@ -67,8 +71,9 @@ runtime API changes.
   references/views in the normal C++ manner.
 - Standard fields are case-sensitive and have no aliases. K-file identifiers
   remain case-insensitive according to Fortran namelist rules.
-- COCOS detection/conversion applies only to G-files and never guesses an
-  ambiguous source.
+- COCOS detection/conversion applies only to G-files; conversion never guesses
+  an ambiguous source when `from_cocos` is omitted, while an explicit supported
+  `from_cocos` may override incomplete file metadata.
 - There is no equilibrium analysis, derived coordinate/grid calculation,
   plotting, database, OMAS, or MDSplus integration.
 

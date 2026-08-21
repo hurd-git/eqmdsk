@@ -26,18 +26,23 @@ jobs:
           - runner: ubuntu-latest
             platform: linux
             arch: x86_64
+            macos-deployment-target: ""
           - runner: ubuntu-24.04-arm
             platform: linux
             arch: aarch64
+            macos-deployment-target: ""
           - runner: macos-15-intel
             platform: macos
             arch: x86_64
+            macos-deployment-target: "10.15"
           - runner: macos-15
             platform: macos
             arch: arm64
+            macos-deployment-target: "11.0"
           - runner: windows-latest
             platform: windows
             arch: AMD64
+            macos-deployment-target: ""
 
     steps:
       - name: Check out source
@@ -51,6 +56,10 @@ jobs:
 
       - name: Install cibuildwheel
         run: python -m pip install "cibuildwheel==4.1.1"
+
+      - name: Set macOS deployment target
+        if: matrix.platform == 'macos'
+        run: echo "MACOSX_DEPLOYMENT_TARGET=${{ matrix.macos-deployment-target }}" >> "$GITHUB_ENV"
 
       - name: Build and test repaired wheels
         env:
