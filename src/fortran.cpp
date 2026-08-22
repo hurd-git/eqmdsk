@@ -2,6 +2,7 @@
 
 #include <Eigen/Core>
 
+#include <algorithm>
 #include <cerrno>
 #include <charconv>
 #include <cmath>
@@ -297,37 +298,51 @@ bool parse_fortran_real(std::string_view text, double& value) {
          std::isfinite(value);
 }
 
-std::string format_e16_9(double value) {
+void append_e16_9(std::string& output, double value) {
   if (!std::isfinite(value)) {
     throw ValidationError("cannot write a non-finite floating-point value");
   }
 
-  std::ostringstream normalized_stream;
-  normalized_stream.imbue(std::locale::classic());
-  normalized_stream << std::uppercase << std::scientific
-                    << std::setprecision(8) << value;
-  const auto normalized = normalized_stream.str();
-  const auto exponent_marker = normalized.find('E');
-  const auto decimal = normalized.find('.');
-  const auto first_digit = normalized.find_first_of("0123456789");
-  if (exponent_marker == std::string::npos || decimal == std::string::npos ||
-      first_digit == std::string::npos || decimal <= first_digit ||
-      exponent_marker <= decimal) {
+  char normalized[32]{};
+  const auto converted = std::to_chars(
+      normalized, normalized + sizeof(normalized), value,
+      std::chars_format::scientific, 8);
+  if (converted.ec != std::errc{} || converted.ptr == normalized ||
+      converted.ptr >= normalized + sizeof(normalized)) {
     throw ValidationError("unable to format floating-point value as E16.9");
   }
 
-  std::string digits;
-  digits.reserve(9);
-  digits.push_back(normalized[first_digit]);
-  digits.append(normalized, decimal + 1,
-                std::min<std::size_t>(8, exponent_marker - decimal - 1));
-  digits.append(9 - digits.size(), '0');
+  const auto* begin = normalized;
+  const auto* end = converted.ptr;
+  const bool negative = *begin == '-';
+  if (negative) {
+    ++begin;
+  }
+  const auto* decimal = std::find(begin, end, '.');
+  const auto* exponent_marker = std::find(begin, end, 'e');
+  if (decimal == end || exponent_marker == end || decimal >= exponent_marker ||
+      decimal == begin || exponent_marker + 1 >= end) {
+    throw ValidationError("unable to format floating-point exponent as E16.9");
+  }
 
   int exponent = 0;
-  try {
-    exponent = std::stoi(normalized.substr(exponent_marker + 1));
-  } catch (...) {
+  const auto* exponent_digit = exponent_marker + 1;
+  bool exponent_negative = false;
+  if (*exponent_digit == '+' || *exponent_digit == '-') {
+    exponent_negative = *exponent_digit == '-';
+    ++exponent_digit;
+  }
+  if (exponent_digit == end) {
     throw ValidationError("unable to format floating-point exponent as E16.9");
+  }
+  for (; exponent_digit < end; ++exponent_digit) {
+    if (*exponent_digit < '0' || *exponent_digit > '9' || exponent > 9999) {
+      throw ValidationError("unable to format floating-point exponent as E16.9");
+    }
+    exponent = exponent * 10 + (*exponent_digit - '0');
+  }
+  if (exponent_negative) {
+    exponent = -exponent;
   }
   if (value != 0.0) {
     ++exponent;
@@ -337,25 +352,35 @@ std::string format_e16_9(double value) {
     throw ValidationError("floating-point exponent does not fit E16.9");
   }
 
-  std::ostringstream suffix;
-  suffix.imbue(std::locale::classic());
-  if (exponent_magnitude <= 99) {
-    suffix << 'E' << (exponent < 0 ? '-' : '+') << std::setfill('0')
-           << std::setw(2) << exponent_magnitude;
-  } else {
-    suffix << (exponent < 0 ? '-' : '+') << std::setfill('0')
-           << std::setw(3) << exponent_magnitude;
+  char formatted[16]{};
+  formatted[0] = negative ? '-' : ' ';
+  formatted[1] = '0';
+  formatted[2] = '.';
+  const auto fractional_digits =
+      static_cast<std::size_t>(exponent_marker - decimal - 1);
+  if (fractional_digits != 8) {
+    throw ValidationError("unable to format floating-point value as E16.9");
   }
+  formatted[3] = *begin;
+  std::copy_n(decimal + 1, 8, formatted + 4);
+  if (exponent_magnitude <= 99) {
+    formatted[12] = 'E';
+    formatted[13] = exponent < 0 ? '-' : '+';
+    formatted[14] = static_cast<char>('0' + exponent_magnitude / 10);
+    formatted[15] = static_cast<char>('0' + exponent_magnitude % 10);
+  } else {
+    formatted[12] = exponent < 0 ? '-' : '+';
+    formatted[13] = static_cast<char>('0' + exponent_magnitude / 100);
+    formatted[14] = static_cast<char>('0' + exponent_magnitude / 10 % 10);
+    formatted[15] = static_cast<char>('0' + exponent_magnitude % 10);
+  }
+  output.append(formatted, sizeof(formatted));
+}
 
+std::string format_e16_9(double value) {
   std::string result;
   result.reserve(16);
-  result.push_back(std::signbit(value) ? '-' : ' ');
-  result += "0.";
-  result += digits;
-  result += suffix.str();
-  if (result.size() != 16) {
-    throw ValidationError("floating-point value does not fit E16.9");
-  }
+  append_e16_9(result, value);
   return result;
 }
 
@@ -544,7 +569,7 @@ std::vector<double> NumericCursor::real_array(std::size_t count,
 }
 
 void FortranRealWriter::value(double number) {
-  output_ += format_e16_9(number);
+  append_e16_9(output_, number);
   ++column_;
   if (column_ == 5) {
     output_ += '\n';

@@ -30,6 +30,7 @@ bool parse_fortran_real(std::string_view text, double& value);
 // magnitude needs three digits omit the `E` marker, as required to retain the
 // fixed 16-character field width (for example, -0.100000000+101).
 std::string format_e16_9(double value);
+void append_e16_9(std::string& output, double value);
 
 class NumericCursor {
  public:
