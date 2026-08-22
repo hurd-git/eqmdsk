@@ -116,6 +116,7 @@ def test_real_gfile_aux_namelist_is_nested_mapping(tmp_path):
     if not REAL_GFILE.exists():
         pytest.skip("local EFIT fixture unavailable")
     gfile = eqmdsk.GFile(REAL_GFILE)
+    assert not hasattr(gfile, "aux_namelist")
     assert "AuxNamelist" in gfile
     assert set(gfile["AuxNamelist"]) >= {"OUT1", "BASIS", "CHIOUT"}
     assert gfile["AuxNamelist"]["OUT1"]["ISHOT"] == 67590

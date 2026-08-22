@@ -177,15 +177,11 @@ class GFile(_FileMapping):
     def __init__(self, filename: Any) -> None:
         super().__init__(filename)
 
-    @property
-    def aux_namelist(self) -> Optional["KFile"]:
-        return dict.get(self, "AuxNamelist")
-
     def _refresh(self) -> None:
         dict.clear(self)
         for name in self._core.keys():
             dict.__setitem__(self, name, _field_value(self._core, name))
-        aux = getattr(self._core, "aux_namelist", None)
+        aux = getattr(self._core, "_aux_namelist", None)
         if aux is not None:
             dict.__setitem__(self, "AuxNamelist", _AuxNamelist._from_core(aux))
 
