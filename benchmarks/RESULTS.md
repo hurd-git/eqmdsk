@@ -12,16 +12,34 @@ guarantee. It was recorded on 2026-08-22 (Asia/Shanghai) with eqmdsk 0.9.0.
 
 ## Method
 
-The command below used five unmeasured warm-up rounds followed by thirty
-measured rounds. Each format ran in a fresh child process. Times are medians for
-complete parse, write, and reparse operations; peak RSS is the child process
-peak and therefore includes CPython, NumPy, and the eqmdsk extension.
-Filesystem caches were not cleared between rounds.
+The Release extension was built in a clean CMake directory with the repository
+virtual environment's Python interpreter. It was then loaded from a temporary
+package directory so an editable Debug build could not affect the result. The
+benchmark used five unmeasured warm-up rounds followed by thirty measured
+rounds; each format ran in a fresh child process. Times are medians for complete
+parse, write, and reparse operations. Peak RSS is the child process peak and
+therefore includes CPython, NumPy, and the eqmdsk extension. Filesystem caches
+were not cleared between rounds.
 
 ```console
-.venv/bin/python benchmarks/benchmark_io.py \
-  --iterations 30 --warmup 5 \
-  --data-dir data
+cmake -S . -B build/benchmark-release \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DEQMDSK_BUILD_PYTHON=ON \
+  -DEQMDSK_BUILD_TESTS=OFF \
+  -DPython_EXECUTABLE="$PWD/.venv/bin/python"
+cmake --build build/benchmark-release --parallel
+bench_dir="$(mktemp -d)"
+uv venv --python 3.12 "$bench_dir/venv"
+uv pip install --python "$bench_dir/venv/bin/python" "numpy>=1.23"
+site_packages="$("$bench_dir/venv/bin/python" -c \
+  'import sysconfig; print(sysconfig.get_path("purelib"))')"
+mkdir -p "$site_packages/eqmdsk"
+cp python/eqmdsk/__init__.py python/eqmdsk/__init__.pyi \
+  python/eqmdsk/py.typed "$site_packages/eqmdsk/"
+cp build/benchmark-release/_core*.so "$site_packages/eqmdsk/"
+"$bench_dir/venv/bin/python" benchmarks/benchmark_io.py \
+  --iterations 30 --warmup 5 --data-dir data
+rm -rf "$bench_dir"
 ```
 
 This run includes the strict, locale-independent stream parser used for
@@ -30,10 +48,10 @@ that portability change.
 
 | Format | Input | Bytes | Parse (ms) | Write (ms) | Reparse (ms) | Peak RSS (MiB) |
 | --- | --- | ---: | ---: | ---: | ---: | ---: |
-| G | `data/g067590.03300` | 668,454 | 27.940 | 22.031 | 25.955 | 36.664 |
-| A | `data/a067590.03300` | 4,462 | 0.608 | 0.465 | 0.575 | 35.047 |
-| K | `data/k067590.03300` | 3,416 | 0.943 | 0.309 | 1.335 | 34.895 |
-| S | synthetic, 10,000 rows | 700,286 | 23.728 | 9.926 | 23.449 | 36.801 |
+| G | `data/g067590.03300` | 668,454 | 2.999 | 15.696 | 2.901 | 39.348 |
+| A | `data/a067590.03300` | 4,462 | 0.135 | 0.315 | 0.105 | 33.105 |
+| K | `data/k067590.03300` | 3,416 | 0.087 | 0.144 | 0.098 | 33.109 |
+| S | synthetic, 10,000 rows | 700,286 | 3.520 | 7.537 | 3.287 | 35.340 |
 
 Use `--json` for the versioned, machine-readable result, including minimum,
 median, and mean timings. When a G-, A-, K-, or S-file is absent from the data
