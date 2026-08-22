@@ -34,13 +34,13 @@ def _assert_semantically_equal(left, right):
         ("freeqdsk-test-1.geqdsk", eqmdsk.GFile),
     ],
 )
-def test_public_file_parse_write_parse(tmp_path: Path, filename, file_type):
+def test_public_file_parse_save_parse(tmp_path: Path, filename, file_type):
     source = Path(PUBLIC_DATA) / filename
     assert source.is_file(), f"public fixture was not fetched: {source}"
 
     original = file_type(source)
     output = tmp_path / (filename + ".roundtrip")
-    original.write(output)
+    original.save(output)
     reparsed = file_type(output)
 
     _assert_semantically_equal(original, reparsed)

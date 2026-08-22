@@ -36,6 +36,38 @@ def test_file_mapping_repr_lists_all_fields(tmp_path):
     assert isinstance(sfile, dict)
 
 
+def test_file_path_properties_are_read_only(tmp_path, monkeypatch):
+    source = tmp_path / "source.s"
+    source.write_text("1 2 0.1 0.2\n", encoding="ascii")
+    monkeypatch.chdir(tmp_path)
+    relative = eqmdsk.SFile("source.s")
+    assert relative.filename == "source.s"
+    assert relative.path == "./source.s"
+    assert relative.abspath == str(source.resolve())
+    with pytest.raises(AttributeError):
+        relative.filename = "renamed.s"
+    with pytest.raises(AttributeError):
+        relative.path = "other.s"
+    with pytest.raises(AttributeError):
+        relative.abspath = str(tmp_path / "other.s")
+
+
+def test_default_save_uses_original_absolute_path_after_chdir(tmp_path, monkeypatch):
+    source = tmp_path / "source.s"
+    source.write_text("1 2 0.1 0.2\n", encoding="ascii")
+    monkeypatch.chdir(tmp_path)
+    sfile = eqmdsk.SFile("source.s")
+
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    monkeypatch.chdir(elsewhere)
+    sfile["X"][0] = 9.0
+    sfile.save()
+
+    assert eqmdsk.SFile(source)["X"][0] == 9.0
+    assert not (elsewhere / "source.s").exists()
+
+
 def test_file_mappings_are_debugger_expandable(tmp_path):
     source = tmp_path / "k"
     source.write_text("&IN1\n LIMITR=2\n&END\n", encoding="ascii")
@@ -54,12 +86,12 @@ def test_dict_mutation_helpers_cannot_bypass_core(tmp_path):
         sfile.update({"UNKNOWN": 1})
     with pytest.raises(eqmdsk.FieldError):
         sfile.setdefault("UNKNOWN", 1)
-    with pytest.raises(TypeError):
-        sfile.clear()
-    with pytest.raises(TypeError):
-        sfile.pop("X")
-    with pytest.raises(TypeError):
-        del sfile["X"]
+    sfile.clear()
+    assert sfile["X"] is None
+    assert sfile.pop("X") is None
+    del sfile["X"]
+    assert sfile["X"] is None
+    assert "X" in sfile.missing_fields()
 
     k_path = tmp_path / "k"
     k_path.write_text("&IN1\n LIMITR=2\n&END\n", encoding="ascii")

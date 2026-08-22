@@ -1,4 +1,3 @@
-eqmdsk\.(AFile|CocosResult|GFile|KFile|KSection|SFile)
+eqmdsk\.(AFile|CocosResult|GFile|KFile|Namelist|NamelistBlock|SFile)
 eqmdsk\.CocosResult\.(candidates|diagnostic|selected)
-eqmdsk\.KFile\.filename
-eqmdsk\.KSection\.__init__
+eqmdsk\.NamelistBlock\.__init__

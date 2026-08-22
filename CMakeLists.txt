@@ -130,6 +130,7 @@ add_library(eqmdsk STATIC
   src/fortran.cpp
   src/gfile.cpp
   src/kfile.cpp
+  src/namelist.cpp
   src/sfile.cpp
 )
 add_library(eqmdsk::eqmdsk ALIAS eqmdsk)

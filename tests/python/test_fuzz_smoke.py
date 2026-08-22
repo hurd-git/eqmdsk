@@ -82,7 +82,7 @@ def test_deterministic_parser_mutation_smoke(tmp_path: Path, file_type, seed):
             continue
 
         try:
-            parsed.write(output)
+            parsed.save(output)
             file_type(output)
         except eqmdsk.Error:
             # A mutated input may remain parseable while violating the stricter

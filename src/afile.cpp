@@ -25,6 +25,35 @@
 namespace eqmdsk {
 namespace {
 
+const std::vector<std::string> kRequiredFields{
+    "SHOT",    "TIME",    "JFLAG",   "LFLAG",   "LIMLOC",  "MCO2V",
+    "MCO2R",   "QMFLAG",  "NLOLD",   "NLNEW",   "CHISQ",   "RCENCM",
+    "BCENTR",  "IPMEAS",  "IPMHD",   "RCNTR",   "ZCNTR",   "AMINOR",
+    "ELONG",   "UTRI",    "LTRI",    "VOLUME",  "RCURRT",  "ZCURRT",
+    "QSTAR",   "BETAT",   "BETAP",   "LI",      "GAPIN",   "GAPOUT",
+    "GAPTOP",  "GAPBOT",  "Q95",     "VERTN",   "SHEAR",   "BPOLAV",
+    "S1",      "S2",      "S3",      "QOUT",    "SEPIN",   "SEPOUT",
+    "SEPTOP",  "SIBDRY",  "AREA",    "WMHD",    "ERROR",   "ELONGM",
+    "QM",      "CDFLUX",  "ALPHA",   "RTTT",    "PSIREF",  "INDENT",
+    "RSEPS",   "ZSEPS",   "SEPEXP",  "SEPBOT",  "BTAXP",   "BTAXV",
+    "AQ1",     "AQ2",     "AQ3",     "DSEP",    "RM",      "ZM",
+    "PSIM",    "TAUMHD",  "BETAPD",  "BETATD",  "WDIA",    "DIAMAG",
+    "VLOOP",   "TAUDIA",  "QMERCI",  "TAVEM",   "NSILOP0", "MAGPRI0",
+    "NFCOIL0", "NESUM0",  "RCO2V",   "DCO2V",   "RCO2R",   "DCO2R",
+    "CSILOP",  "CMPR2",   "CCBRSP",  "ECCURT"};
+
+const std::vector<std::string> kOptionalFields{
+    "PBINJ",    "RVSIN",   "ZVSIN",   "RVSOUT",  "ZVSOUT",  "VSURF",
+    "WPDOT",    "WBDOT",   "SLANTU",  "SLANTL",  "ZUPERTS", "CHIPRE",
+    "CJOR95",   "PP95",    "DRSEP",   "YYY2",    "XNNC",    "CPROF",
+    "ORING",    "CJOR0",   "FEXPAN",  "QMIN",    "CHIMSE",  "SSI01",
+    "FEXPVS",   "SEPNOSE", "SSI95",   "RHOQMIN", "CJOR99",  "CJ1AVE",
+    "RMIDIN",   "RMIDOUT", "PSURFA",  "PEAK",    "DMINUX",  "DMINLX",
+    "DOLUBAF",  "DOLUBAFM", "DILUDOM", "DILUDOMM", "RATSOL", "RVSIU",
+    "ZVSIU",    "RVSID",   "ZVSID",   "RVSOU",   "ZVSOU",   "RVSOD",
+    "ZVSOD",    "CONDNO",  "PSIN32",  "PSIN21",  "RQ32IN",  "RQ21TOP",
+    "CHILIBT",  "LI3",     "XBETAPR", "TFLUX",   "TCHIMLS", "TWAGAP"};
+
 struct Line {
   std::size_t begin = 0;
   std::size_t end = 0;
@@ -328,12 +357,110 @@ bool any_fields_present(const FieldMap& fields,
 
 }  // namespace
 
-AFile::AFile(std::string filename) : FieldFile(std::move(filename)) {
-  parse(detail::read_binary_file(filename_));
+AFile::AFile(std::string path) : AFile(std::move(path), true) {}
+
+AFile::AFile(std::string path, bool read_file)
+    : FieldFile(std::move(path)) {
+  if (read_file) {
+    parse(detail::read_binary_file(path_));
+  }
+}
+
+AFile AFile::create() {
+  AFile result({}, false);
+  result.set_header(" \n       \n 0.000000000E+00\n");
+  result.footer_.clear();
+
+  result.fields_.insert("SHOT", std::int64_t{0}, true, 0);
+  result.fields_.insert("TIME", 0.0, true, 1);
+  result.fields_.insert("JFLAG", std::int64_t{0}, true, 2);
+  result.fields_.insert("LFLAG", std::int64_t{0}, true, 3);
+  result.fields_.insert("LIMLOC", std::string{}, true, 4);
+  result.fields_.insert("MCO2V", std::int64_t{0}, true, 5);
+  result.fields_.insert("MCO2R", std::int64_t{0}, true, 6);
+  result.fields_.insert("QMFLAG", std::string{}, true, 7);
+  result.fields_.insert("NLOLD", std::int64_t{0}, true, 8);
+  result.fields_.insert("NLNEW", std::int64_t{0}, true, 9);
+
+  std::size_t order = 10;
+  for (const auto& names : kInitialRecords) {
+    for (const auto* name : names) {
+      result.fields_.insert(name, 0.0, true, order++);
+    }
+  }
+  for (const auto& names : kLaterRecords) {
+    if (names[0] == nullptr) {
+      result.fields_.insert("RSEPS", DoubleVector::Zero(2).eval(), true,
+                            order++);
+      result.fields_.insert("ZSEPS", DoubleVector::Zero(2).eval(), true,
+                            order++);
+      continue;
+    }
+    for (const auto* name : names) {
+      result.fields_.insert(name, 0.0, true, order++);
+    }
+  }
+  result.fields_.insert("NSILOP0", std::int64_t{0}, true, order++);
+  result.fields_.insert("MAGPRI0", std::int64_t{0}, true, order++);
+  result.fields_.insert("NFCOIL0", std::int64_t{0}, true, order++);
+  result.fields_.insert("NESUM0", std::int64_t{0}, true, order++);
+  result.mark_all_fields_missing();
+  return result;
+}
+
+const std::vector<std::string>& AFile::required_fields() const noexcept {
+  return kRequiredFields;
+}
+
+const std::vector<std::string>& AFile::optional_fields() const noexcept {
+  return kOptionalFields;
+}
+
+FieldKind AFile::field_kind(const std::string& name) const noexcept {
+  if (name == "LIMLOC" || name == "QMFLAG") {
+    return FieldKind::String;
+  }
+  if (name == "SHOT" || name == "JFLAG" || name == "LFLAG" ||
+      name == "MCO2V" || name == "MCO2R" || name == "NLOLD" ||
+      name == "NLNEW" || name == "NSILOP0" || name == "MAGPRI0" ||
+      name == "NFCOIL0" || name == "NESUM0") {
+    return FieldKind::Integer;
+  }
+  if (name == "RSEPS" || name == "ZSEPS" || name == "RCO2V" ||
+      name == "DCO2V" || name == "RCO2R" || name == "DCO2R" ||
+      name == "CSILOP" || name == "CMPR2" || name == "CCBRSP" ||
+      name == "ECCURT") {
+    return FieldKind::RealVector;
+  }
+  return FieldKind::Real;
+}
+
+void AFile::set_header(std::string value) {
+  header_ = std::move(value);
+  shot_field_offset_ = std::string::npos;
+  time_field_offset_ = std::string::npos;
+
+  const auto first_break = header_.find('\n');
+  if (first_break == std::string::npos || first_break + 1 >= header_.size()) {
+    return;
+  }
+  shot_field_offset_ = first_break + 1;
+  const auto second_break = header_.find('\n', shot_field_offset_);
+  if (second_break == std::string::npos || second_break + 1 >= header_.size()) {
+    return;
+  }
+  const auto time_line_begin = second_break + 1;
+  const auto time_line_end = header_.find('\n', time_line_begin);
+  const auto time_line_size =
+      (time_line_end == std::string::npos ? header_.size() : time_line_end) -
+      time_line_begin;
+  if (time_line_size >= 17) {
+    time_field_offset_ = time_line_begin + 1;
+  }
 }
 
 void AFile::parse(const std::string& bytes) {
-  const auto diagnostic_filename = detail::path_for_diagnostic(filename_);
+  const auto diagnostic_filename = detail::path_for_diagnostic(path_);
   const auto lines = split_lines(bytes);
   if (lines.empty()) {
     throw ParseError("empty A-file", diagnostic_filename, 1, 1);
@@ -355,7 +482,9 @@ void AFile::parse(const std::string& bytes) {
                      diagnostic_filename, lines[control_index].number, 1);
   }
 
-  date_header_ = std::string(lines[0].text);
+  header_ = bytes.substr(0, lines[control_index].begin);
+  shot_field_offset_ = lines[1].begin;
+  time_field_offset_ = std::string::npos;
   const auto& shot_line = lines[1];
   if (shot_line.text.size() < 7) {
     throw ParseError("A-file shot record is shorter than I7",
@@ -366,12 +495,14 @@ void AFile::parse(const std::string& bytes) {
     throw ParseError("invalid SHOT in A-file header", diagnostic_filename,
                      shot_line.number, 1);
   }
-  shot_suffix_ = std::string(shot_line.text.substr(7));
   std::optional<double> header_time;
   if (control_index >= 3) {
     const auto& header_time_line = lines[2];
     if (header_time_line.text.size() >= 17) {
       header_time = parse_real(header_time_line.text.substr(1, 16));
+      if (header_time) {
+        time_field_offset_ = header_time_line.begin + 1;
+      }
     }
   }
 
@@ -418,8 +549,12 @@ void AFile::parse(const std::string& bytes) {
       qmflag = detail::trim_copy(control.text.substr(52, 3));
       nlold = *parsed_nlold;
       nlnew = *parsed_nlnew;
+      control_suffix_ = std::string(control.text.substr(66));
     }
   }
+
+  control_line_ending_ = control.ending.empty() ? "\n" : control.ending;
+  record_line_ending_ = control_line_ending_;
   if (!fixed_control) {
     std::istringstream stream(std::string(control.text.substr(1)));
     stream.imbue(std::locale::classic());
@@ -626,10 +761,13 @@ void AFile::parse(const std::string& bytes) {
   }
 
   // Remaining producer-specific records are outside the supported A-file
-  // schema and are intentionally omitted by the canonical writer.
+  // schema but remain editable through the public footer text.
+  footer_ = line_index < lines.size() ? bytes.substr(lines[line_index].begin)
+                                      : std::string{};
 }
 
 void AFile::validate_for_write() const {
+  validate_required_fields();
   static constexpr std::array<const char*, 8> integer_fields{{
       "SHOT", "JFLAG", "LFLAG", "MCO2V", "MCO2R", "NLOLD", "NLNEW",
       "NSILOP0"}};
@@ -748,17 +886,30 @@ void AFile::validate_for_write() const {
   }
 }
 
-void AFile::write(const std::string& path) const {
+void AFile::save(const std::string& path) const {
   validate_for_write();
 
-  std::string output = date_header_;
-  output += '\n';
-  output += integer_field(require<std::int64_t>(fields_, "SHOT"), 7, "SHOT");
-  output += shot_suffix_;
-  output += '\n';
-  output += ' ';
-  output += real_field(require<double>(fields_, "TIME"), "TIME");
-  output += '\n';
+  std::string output = header_;
+  if (output.empty() || (output.back() != '\n' && output.back() != '\r')) {
+    output += record_line_ending_;
+  }
+  if (shot_field_offset_ + 7 > output.size()) {
+    throw ValidationError("stored A-file header does not contain an I7 SHOT field");
+  }
+  output.replace(shot_field_offset_, 7,
+                 integer_field(require<std::int64_t>(fields_, "SHOT"), 7,
+                               "SHOT"));
+  if (time_field_offset_ != std::string::npos) {
+    if (time_field_offset_ + 16 > output.size()) {
+      throw ValidationError("stored A-file header does not contain a TIME field");
+    }
+    output.replace(time_field_offset_, 16,
+                   real_field(require<double>(fields_, "TIME"), "TIME"));
+  } else {
+    output += ' ';
+    output += real_field(require<double>(fields_, "TIME"), "TIME");
+    output += record_line_ending_;
+  }
 
   output += '*';
   output += time_field(require<double>(fields_, "TIME"));
@@ -787,14 +938,15 @@ void AFile::write(const std::string& path) const {
                           "NLOLD");
   output += integer_field(require<std::int64_t>(fields_, "NLNEW"), 5,
                           "NLNEW");
-  output += '\n';
+  output += control_suffix_;
+  output += control_line_ending_;
 
   for (const auto& names : kInitialRecords) {
-    append_named_record(output, fields_, names, "\n");
+    append_named_record(output, fields_, names, record_line_ending_);
   }
   for (const auto* name : kChordArrays) {
     append_vector_records(output, require<DoubleVector>(fields_, name), name,
-                          "\n");
+                          record_line_ending_);
   }
   for (std::size_t record = 0; record < kLaterRecords.size(); ++record) {
     if (record == 5) {
@@ -803,10 +955,10 @@ void AFile::write(const std::string& path) const {
       append_real_record(output,
                          {{rseps[0], "RSEPS"}, {zseps[0], "ZSEPS"},
                           {rseps[1], "RSEPS"}, {zseps[1], "ZSEPS"}},
-                         "\n");
+                         record_line_ending_);
     } else {
       append_named_record(output, fields_, kLaterRecords[record],
-                          "\n");
+                          record_line_ending_);
     }
   }
 
@@ -814,7 +966,7 @@ void AFile::write(const std::string& path) const {
   for (const auto* name : {"NSILOP0", "MAGPRI0", "NFCOIL0", "NESUM0"}) {
     output += integer_field(require<std::int64_t>(fields_, name), 5, name);
   }
-  output += '\n';
+  output += record_line_ending_;
 
   const auto& csilop = require<DoubleVector>(fields_, "CSILOP");
   const auto& cmpr2 = require<DoubleVector>(fields_, "CMPR2");
@@ -826,18 +978,19 @@ void AFile::write(const std::string& path) const {
     combined.tail(cmpr2.size()) = cmpr2;
   }
   append_vector_records(output, combined, "CSILOP/CMPR2",
-                        "\n");
+                        record_line_ending_);
   append_vector_records(output, require<DoubleVector>(fields_, "CCBRSP"),
-                        "CCBRSP", "\n");
+                        "CCBRSP", record_line_ending_);
   append_vector_records(output, require<DoubleVector>(fields_, "ECCURT"),
-                        "ECCURT", "\n");
+                        "ECCURT", record_line_ending_);
 
   for (const auto& names : kOptionalRecords) {
     if (!all_fields_present(fields_, names)) {
       break;
     }
-    append_named_record(output, fields_, names, "\n");
+    append_named_record(output, fields_, names, record_line_ending_);
   }
+  output += footer_;
   detail::write_binary_file(path, output);
 }
 

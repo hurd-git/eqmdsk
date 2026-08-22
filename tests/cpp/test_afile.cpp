@@ -30,6 +30,7 @@ std::string synthetic_afile() {
   for (int record = 6; record < 17; ++record) output += real_record(record + 1);
   output += "     1    1    0    0\n";
   output += " 2.100000000E+01 2.200000000E+01 9.990000000E+02 9.990000000E+02\n";
+  output += "producer footer\n";
   return output;
 }
 
@@ -47,15 +48,23 @@ int main() {
   assert(file.keys().size() > 40);
   assert(std::get<std::int64_t>(file.at("SHOT")) == 1);
   assert(std::get<eqmdsk::DoubleVector>(file.at("RCO2V")).size() == 3);
+  assert(file.header().find("01-Jan-00") != std::string::npos);
+  assert(file.footer() == "producer footer\n");
+  auto edited_header = file.header();
+  edited_header.replace(1, 9, "02-Feb-00");
+  file.set_header(std::move(edited_header));
+  file.set_footer("edited footer\n");
   std::get<double>(file.at("CHISQ")) = -1.0e100;
-  file.write(target.string());
+  file.save(target.string());
   eqmdsk::AFile reparsed(target.string());
   assert(std::abs(std::get<double>(reparsed.at("CHISQ")) + 1.0e100) < 1e90);
+  assert(reparsed.header().find("02-Feb-00") != std::string::npos);
+  assert(reparsed.footer() == "edited footer\n");
 
   const auto real = std::filesystem::path(EQMDSK_LOCAL_DATA_DIR) / "a067590.03300";
   if (std::filesystem::exists(real)) {
     eqmdsk::AFile fixture(real.string());
-    fixture.write(target.string());
+    fixture.save(target.string());
     eqmdsk::AFile roundtrip(target.string());
     assert(roundtrip.keys() == fixture.keys());
     for (const auto& name : fixture.keys()) {

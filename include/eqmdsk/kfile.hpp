@@ -1,58 +1,39 @@
 #pragma once
 
-#include <cstddef>
-#include <memory>
 #include <string>
-#include <vector>
 
-#include "eqmdsk/field.hpp"
 #include "eqmdsk/file.hpp"
+#include "eqmdsk/namelist.hpp"
 
 namespace eqmdsk {
 
-namespace detail {
-struct KFileImpl;
-}
-
-// Reader and writer for EFIT Fortran namelists.
-//
-// The public model is a mapping from canonical section names to FieldMap
-// values. Parser bookkeeping remains private and is discarded after parsing.
-class KFile final : public EFITFile {
+// Reader and writer for EFIT Fortran namelist files.
+class KFile final : public EFITFile, public Namelist {
  public:
-  explicit KFile(std::string filename);
+  explicit KFile(std::string path);
+  static KFile create();
   ~KFile() override;
 
   KFile(const KFile& other);
   KFile& operator=(const KFile& other);
   KFile(KFile&&) noexcept;
   KFile& operator=(KFile&&) noexcept;
+  KFile copy() const { return *this; }
 
-  using EFITFile::write;
+  using EFITFile::save;
+  using Namelist::at;
+  using Namelist::assign_block;
+  using Namelist::contains;
+  using Namelist::empty;
+  using Namelist::erase_block;
+  using Namelist::keys;
+  using Namelist::operator[];
+  using Namelist::size;
   const char* format_name() const noexcept override { return "KFile"; }
-  void write(const std::string& path) const override;
-
-  bool contains(const std::string& section_name) const;
-  std::size_t size() const noexcept;
-  bool empty() const noexcept { return size() == 0; }
-  FieldMap& at(const std::string& section_name);
-  const FieldMap& at(const std::string& section_name) const;
-  FieldMap& operator[](const std::string& section_name) {
-    return at(section_name);
-  }
-  const FieldMap& operator[](const std::string& section_name) const {
-    return at(section_name);
-  }
-  std::vector<std::string> keys() const;
+  void save(const std::string& path) const override;
 
  private:
-  friend class GFile;
-  static KFile from_string(std::string filename, const std::string& text);
-  KFile(std::string filename, bool read_file);
-  std::string serialize() const;
-  void parse(const std::string& bytes);
-
-  std::unique_ptr<detail::KFileImpl> impl_;
+  KFile(std::string path, bool read_file);
 };
 
 }  // namespace eqmdsk

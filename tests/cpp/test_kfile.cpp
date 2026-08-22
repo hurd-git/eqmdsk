@@ -24,7 +24,7 @@ int main(int argc, char** argv) {
   assert(std::get<double>(file["IN1"]["BTOR"]) == -2.25);
   assert(std::get<bool>(file["IN1"]["FLAG"]));
   std::get<std::int64_t>(file["IN1"]["LIMITR"]) = 61;
-  file.write(target.string());
+  file.save(target.string());
   eqmdsk::KFile reparsed(target.string());
   assert(std::get<std::int64_t>(reparsed["IN1"]["LIMITR"]) == 61);
 
@@ -32,7 +32,7 @@ int main(int argc, char** argv) {
     eqmdsk::KFile real(argv[1]);
     assert(real.contains("IN1"));
     assert(std::get<std::int64_t>(real["IN1"]["LIMITR"]) == 60);
-    real.write(target.string());
+    real.save(target.string());
     eqmdsk::KFile roundtrip(target.string());
     assert(roundtrip.contains("IN1"));
     assert(std::get<std::int64_t>(roundtrip["IN1"]["LIMITR"]) == 60);

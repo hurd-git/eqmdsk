@@ -33,7 +33,7 @@ def test_sfile_empty_and_titles_only(tmp_path):
     empty = _write(tmp_path / "s.empty", b"")
     sfile = eqmdsk.SFile(empty)
     assert sfile["X"].shape == (0,)
-    sfile.write()
+    sfile.save()
     assert empty.read_bytes() == b""
 
     titled = _write(tmp_path / "s.titled", b"x\ry\rtitle\r")
@@ -43,7 +43,7 @@ def test_sfile_empty_and_titles_only(tmp_path):
     assert sfile["TITLE"] == "title"
     assert sfile["X"].shape == (0,)
     output = tmp_path / "s.titled.output"
-    sfile.write(output)
+    sfile.save(output)
     assert eqmdsk.SFile(output)["TITLE"] == "title"
 
 
@@ -62,7 +62,7 @@ def test_sfile_three_titles_and_fortran_exponents(tmp_path):
     np.testing.assert_array_equal(sfile["DY"], [0.4])
 
 
-def test_sfile_normalizes_interstitial_text_on_write(tmp_path):
+def test_sfile_normalizes_interstitial_text_on_save(tmp_path):
     source = _write(
         tmp_path / "s.extra",
         b"x label\ny label\nfit title\n"
@@ -75,7 +75,7 @@ def test_sfile_normalizes_interstitial_text_on_write(tmp_path):
     target = tmp_path / "s.extra.roundtrip"
 
     sfile = eqmdsk.SFile(source)
-    sfile.write(target)
+    sfile.save(target)
 
     output = target.read_bytes()
     assert b"COMMENT BETWEEN" not in output
@@ -169,7 +169,7 @@ def test_sfile_max_digits_precision_roundtrip(tmp_path):
         dtype=np.float64,
     )
     sfile["X"][0], sfile["Y"][0], sfile["DX"][0], sfile["DY"][0] = values
-    sfile.write(target)
+    sfile.save(target)
 
     reparsed = eqmdsk.SFile(target)
     actual = np.array(
@@ -180,7 +180,7 @@ def test_sfile_max_digits_precision_roundtrip(tmp_path):
     )
 
 
-def test_sfile_arrays_are_writable_and_write_defaults_to_source(tmp_path):
+def test_sfile_arrays_are_writable_and_save_defaults_to_source(tmp_path):
     source = _write(tmp_path / "s.modify", b"1 2 0.1 0.2\n")
     sfile = eqmdsk.SFile(source)
 
@@ -192,7 +192,7 @@ def test_sfile_arrays_are_writable_and_write_defaults_to_source(tmp_path):
     assert view.flags.c_contiguous
     pointer = view.__array_interface__["data"][0]
     view[0] = 42.25
-    sfile.write()
+    sfile.save()
     assert eqmdsk.SFile(source)["Y"][0] == 42.25
     del sfile
     gc.collect()
@@ -203,18 +203,19 @@ def test_sfile_arrays_are_writable_and_write_defaults_to_source(tmp_path):
 def test_sfile_validates_equal_lengths_and_finite_values(tmp_path):
     source = _write(tmp_path / "s.validation", b"1 2 3 4\n")
     sfile = eqmdsk.SFile(source)
-    with pytest.raises(ValueError, match="preserve the existing array length"):
-        sfile["DX"] = np.array([1.0, 2.0])
+    sfile["DX"] = np.array([1.0, 2.0])
+    with pytest.raises(eqmdsk.ValidationError, match="equal lengths"):
+        sfile.save(tmp_path / "wrong-length")
 
     sfile = eqmdsk.SFile(source)
     sfile["DY"][0] = np.inf
     with pytest.raises(eqmdsk.ValidationError):
-        sfile.write(tmp_path / "nonfinite")
+        sfile.save(tmp_path / "nonfinite")
 
 
 @pytest.mark.skipif(not Path("/dev/full").exists(), reason="requires /dev/full")
-def test_sfile_reports_deferred_write_failure(tmp_path):
+def test_sfile_reports_deferred_save_failure(tmp_path):
     source = _write(tmp_path / "s.write-error", b"1 2 3 4\n")
     sfile = eqmdsk.SFile(source)
     with pytest.raises(eqmdsk.IOError):
-        sfile.write(Path("/dev/full"))
+        sfile.save(Path("/dev/full"))

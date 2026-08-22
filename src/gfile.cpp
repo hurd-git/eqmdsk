@@ -7,6 +7,7 @@
 #include <cmath>
 #include <cstdint>
 #include <iomanip>
+#include <iterator>
 #include <limits>
 #include <locale>
 #include <optional>
@@ -16,10 +17,28 @@
 
 #include "detail/fortran.hpp"
 #include "eqmdsk/error.hpp"
-#include "eqmdsk/kfile.hpp"
+#include "eqmdsk/namelist.hpp"
 
 namespace eqmdsk {
 namespace {
+
+const std::vector<std::string> kRequiredFields{
+    "CASE",    "RDIM",   "ZDIM",   "RCENTR", "RLEFT", "ZMID",
+    "RMAXIS",  "ZMAXIS", "SIMAG",  "SIBRY",  "BCENTR", "CURRENT",
+    "FPOL",    "PRES",   "FFPRIM", "PPRIME", "PSIRZ", "QPSI",
+    "NBBBS",   "LIMITR", "RBBBS",  "ZBBBS",  "RLIM", "ZLIM",
+    "NW",      "NH"};
+
+const std::vector<std::string> kOptionalFields{
+    "KVTOR",          "RVTOR",          "NMASS",
+    "PRESSW",         "PWPRIM",         "DMION",
+    "RHOVN",          "KEECUR",         "EPOTEN",
+    "IPLCOUT",        "IPLCOUT_NW",     "IPLCOUT_NH",
+    "IPLCOUT_ISHOT",  "IPLCOUT_ITIME",  "RGRID",
+    "ZGRID",          "IPLCOUT_PREFIX", "PCURRT",
+    "PCURRZ",         "CJOR",           "R1SURF",
+    "R2SURF",         "VOLP",           "BPOLSS",
+    "UNPARSED_EXTENSION"};
 
 struct Header {
   std::string case_text;
@@ -255,29 +274,76 @@ DoubleVector vector_from_values(const std::vector<double>& values) {
 
 }  // namespace
 
-GFile::GFile(std::string filename) : FieldFile(std::move(filename)) {
-  parse(detail::read_binary_file(filename_));
-  detect_cocos();
+GFile::GFile(std::string path) : GFile(std::move(path), true) {}
+
+GFile::GFile(std::string path, bool read_file)
+    : FieldFile(std::move(path)),
+      aux_namelist_(std::make_unique<Namelist>(Namelist::create())) {
+  if (read_file) {
+    parse(detail::read_binary_file(path_));
+    detect_cocos();
+  }
+}
+
+GFile GFile::create(std::size_t nw, std::size_t nh) {
+  if (nw == 0 || nh == 0 || nw > 9999 || nh > 9999) {
+    throw ValidationError("NW and NH must be in the range 1..9999");
+  }
+  const auto grid_size = detail::checked_product(nw, nh, "PSIRZ");
+  GFile result({}, false);
+  result.fields_.insert("CASE", std::string{}, true, 0);
+  result.fields_.insert("NW", static_cast<std::int64_t>(nw), true, 1);
+  result.fields_.insert("NH", static_cast<std::int64_t>(nh), true, 2);
+  static constexpr const char* scalar_names[]{
+      "RDIM", "ZDIM", "RCENTR", "RLEFT", "ZMID", "RMAXIS",
+      "ZMAXIS", "SIMAG", "SIBRY", "BCENTR", "CURRENT"};
+  for (std::size_t index = 0; index < std::size(scalar_names); ++index) {
+    result.fields_.insert(scalar_names[index], 0.0, true, 3 + index);
+  }
+  result.fields_.insert("FPOL", DoubleVector::Zero(nw).eval(), true, 14);
+  result.fields_.insert("PRES", DoubleVector::Zero(nw).eval(), true, 15);
+  result.fields_.insert("FFPRIM", DoubleVector::Zero(nw).eval(), true, 16);
+  result.fields_.insert("PPRIME", DoubleVector::Zero(nw).eval(), true, 17);
+  result.fields_.insert(
+      "PSIRZ",
+      DoubleMatrix::Zero(static_cast<Eigen::Index>(nh),
+                         static_cast<Eigen::Index>(nw)).eval(),
+      true, 18);
+  result.fields_.insert("QPSI", DoubleVector::Zero(nw).eval(), true, 19);
+  result.fields_.insert("NBBBS", std::int64_t{0}, true, 20);
+  result.fields_.insert("LIMITR", std::int64_t{0}, true, 21);
+  result.fields_.insert("RBBBS", DoubleVector{}, true, 22);
+  result.fields_.insert("ZBBBS", DoubleVector{}, true, 23);
+  result.fields_.insert("RLIM", DoubleVector{}, true, 24);
+  result.fields_.insert("ZLIM", DoubleVector{}, true, 25);
+  result.mark_all_fields_missing();
+  result.clear_missing("NW");
+  result.clear_missing("NH");
+  static_cast<void>(grid_size);
+  return result;
 }
 
 GFile::~GFile() = default;
 GFile::GFile(const GFile& other)
-    : FieldFile(other.filename_),
+    : FieldFile(other),
       idum_(other.idum_),
       cocos_(other.cocos_),
       aux_namelist_(other.aux_namelist_
-                        ? std::make_unique<KFile>(*other.aux_namelist_)
+                        ? std::make_unique<Namelist>(*other.aux_namelist_)
                         : nullptr) {
   fields_ = other.fields_;
 }
 GFile& GFile::operator=(const GFile& other) {
   if (this != &other) {
     filename_ = other.filename_;
+    path_ = other.path_;
+    abspath_ = other.abspath_;
     fields_ = other.fields_;
+    missing_fields_ = other.missing_fields_;
     idum_ = other.idum_;
     cocos_ = other.cocos_;
     aux_namelist_ = other.aux_namelist_
-                        ? std::make_unique<KFile>(*other.aux_namelist_)
+                        ? std::make_unique<Namelist>(*other.aux_namelist_)
                         : nullptr;
   }
   return *this;
@@ -285,8 +351,116 @@ GFile& GFile::operator=(const GFile& other) {
 GFile::GFile(GFile&&) noexcept = default;
 GFile& GFile::operator=(GFile&&) noexcept = default;
 
+const std::vector<std::string>& GFile::required_fields() const noexcept {
+  return kRequiredFields;
+}
+
+const std::vector<std::string>& GFile::optional_fields() const noexcept {
+  return kOptionalFields;
+}
+
+FieldKind GFile::field_kind(const std::string& name) const noexcept {
+  if (name == "CASE") {
+    return FieldKind::String;
+  }
+  if (name == "NW" || name == "NH" || name == "NBBBS" ||
+      name == "LIMITR" || name == "KVTOR" || name == "NMASS" ||
+      name == "KEECUR" || name == "IPLCOUT" || name == "IPLCOUT_NW" ||
+      name == "IPLCOUT_NH" || name == "IPLCOUT_ISHOT" ||
+      name == "IPLCOUT_ITIME") {
+    return FieldKind::Integer;
+  }
+  if (name == "PSIRZ" || name == "PCURRT" || name == "PCURRZ") {
+    return FieldKind::RealMatrix;
+  }
+  if (name == "FPOL" || name == "PRES" || name == "FFPRIM" ||
+      name == "PPRIME" || name == "QPSI" || name == "RBBBS" ||
+      name == "ZBBBS" || name == "RLIM" || name == "ZLIM" ||
+      name == "PRESSW" || name == "PWPRIM" || name == "DMION" ||
+      name == "RHOVN" || name == "EPOTEN" || name == "RGRID" ||
+      name == "ZGRID" || name == "IPLCOUT_PREFIX" || name == "CJOR" ||
+      name == "R1SURF" || name == "R2SURF" || name == "VOLP" ||
+      name == "BPOLSS" || name == "UNPARSED_EXTENSION") {
+    return FieldKind::RealVector;
+  }
+  if (name == "RDIM" || name == "ZDIM" || name == "RCENTR" ||
+      name == "RLEFT" || name == "ZMID" || name == "RMAXIS" ||
+      name == "ZMAXIS" || name == "SIMAG" || name == "SIBRY" ||
+      name == "BCENTR" || name == "CURRENT" || name == "RVTOR") {
+    return FieldKind::Real;
+  }
+  return FieldKind::Any;
+}
+
+void GFile::assign(std::string name, FieldValue value) {
+  if (name == "RGRID" || name == "ZGRID") {
+    throw FieldError(name + " is derived from the G-file grid fields");
+  }
+
+  FieldFile::assign(name, std::move(value));
+
+  if (name == "IPLCOUT") {
+    const auto* mode = std::get_if<std::int64_t>(&fields_.at("IPLCOUT"));
+    if (mode != nullptr && *mode == 1) {
+      update_derived_grids();
+    } else {
+      fields_.erase("RGRID");
+      fields_.erase("ZGRID");
+      clear_missing("RGRID");
+      clear_missing("ZGRID");
+    }
+    return;
+  }
+
+  if (name == "RDIM" || name == "RLEFT" || name == "ZDIM" ||
+      name == "ZMID") {
+    update_derived_grids();
+  }
+}
+
+void GFile::update_derived_grids() {
+  if (!fields_.contains("IPLCOUT") ||
+      !std::holds_alternative<std::int64_t>(fields_.at("IPLCOUT")) ||
+      std::get<std::int64_t>(fields_.at("IPLCOUT")) != 1) {
+    return;
+  }
+  const auto scalar = [this](const char* name) -> std::optional<double> {
+    if (!fields_.contains(name) ||
+        !std::holds_alternative<double>(fields_.at(name))) {
+      return std::nullopt;
+    }
+    return std::get<double>(fields_.at(name));
+  };
+  const auto rdim = scalar("RDIM");
+  const auto rleft = scalar("RLEFT");
+  const auto zdim = scalar("ZDIM");
+  const auto zmid = scalar("ZMID");
+  if (!rdim || !rleft || !zdim || !zmid) {
+    return;
+  }
+
+  DoubleVector rgrid(2);
+  rgrid[0] = *rleft;
+  rgrid[1] = *rleft + *rdim;
+  DoubleVector zgrid(2);
+  zgrid[0] = *zmid - *zdim / 2.0;
+  zgrid[1] = *zmid + *zdim / 2.0;
+  if (fields_.contains("RGRID")) {
+    fields_.set("RGRID", std::move(rgrid));
+  } else {
+    fields_.insert("RGRID", std::move(rgrid), false, 38);
+  }
+  if (fields_.contains("ZGRID")) {
+    fields_.set("ZGRID", std::move(zgrid));
+  } else {
+    fields_.insert("ZGRID", std::move(zgrid), false, 39);
+  }
+  clear_missing("RGRID");
+  clear_missing("ZGRID");
+}
+
 void GFile::parse(const std::string& bytes) {
-  const auto diagnostic_filename = detail::path_for_diagnostic(filename_);
+  const auto diagnostic_filename = detail::path_for_diagnostic(path_);
   const auto header = find_header(bytes, diagnostic_filename);
   idum_ = header.idum;
 
@@ -412,8 +586,7 @@ void GFile::parse(const std::string& bytes) {
                                  : aux_begin;
 
   if (aux_begin != std::string::npos) {
-    aux_namelist_ = std::make_unique<KFile>(
-        KFile::from_string(filename_, bytes.substr(aux_begin)));
+    aux_namelist_->parse(bytes.substr(aux_begin), path_);
   }
 
   if (has_token_before(bytes, extension_begin, extension_end)) {
@@ -573,6 +746,7 @@ void GFile::parse(const std::string& bytes) {
 }
 
 void GFile::validate_for_write() const {
+  validate_required_fields();
   const auto nw_value = require<std::int64_t>(fields_, "NW");
   const auto nh_value = require<std::int64_t>(fields_, "NH");
   const auto nbbbs_value = require<std::int64_t>(fields_, "NBBBS");
@@ -732,7 +906,7 @@ void GFile::validate_for_write() const {
   }
 }
 
-void GFile::write(const std::string& path) const {
+void GFile::save(const std::string& path) const {
   validate_for_write();
   const auto nw = static_cast<std::size_t>(require<std::int64_t>(fields_, "NW"));
   const auto nh = static_cast<std::size_t>(require<std::int64_t>(fields_, "NH"));
@@ -880,7 +1054,9 @@ void GFile::write(const std::string& path) const {
     writer.finish_line();
   }
   if (aux_namelist_) {
-    output += aux_namelist_->serialize();
+    std::ostringstream namelist_output;
+    aux_namelist_->write_to(namelist_output);
+    output += namelist_output.str();
   }
   detail::write_binary_file(path, output);
 }

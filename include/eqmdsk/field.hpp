@@ -41,6 +41,7 @@ class FieldMap {
   bool contains(const std::string& name) const noexcept;
   std::size_t size() const noexcept { return entries_.size(); }
   bool empty() const noexcept { return entries_.empty(); }
+  FieldMap copy() const { return *this; }
 
   FieldValue& at(const std::string& name);
   const FieldValue& at(const std::string& name) const;
@@ -52,6 +53,7 @@ class FieldMap {
 
   void insert(std::string name, FieldValue value, bool standard = false,
               std::size_t source_order = 0);
+  void assign(std::string name, FieldValue value);
   void set(const std::string& name, FieldValue value);
   bool erase(const std::string& name);
   void clear() noexcept;
@@ -69,6 +71,11 @@ class FieldMap {
   Container entries_;
   std::unordered_map<std::string, std::size_t> index_;
 };
+
+// A K-file/G-file namelist block is the same compact field mapping used by
+// the field-file core.  Keep the descriptive public name without introducing
+// a second storage or synchronization layer.
+using NamelistBlock = FieldMap;
 
 const char* field_type_name(const FieldValue& value) noexcept;
 

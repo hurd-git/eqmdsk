@@ -21,7 +21,7 @@ int main() {
   assert(std::get<std::string>(file.at("TITLE")) == "TEST");
   assert(std::get<eqmdsk::DoubleVector>(file.at("X"))[1] == 2.0);
   std::get<eqmdsk::DoubleVector>(file.at("Y"))[0] = 11.0;
-  file.write(target.string());
+  file.save(target.string());
   eqmdsk::SFile reparsed(target.string());
   assert(std::get<eqmdsk::DoubleVector>(reparsed.at("Y"))[0] == 11.0);
   std::error_code ignored;

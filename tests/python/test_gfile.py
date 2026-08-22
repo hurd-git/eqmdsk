@@ -40,13 +40,15 @@ def _synthetic_gfile(path, *, tail=b"&EXTRA\n VALUE=1\n/\n\0MAG\n"):
     path.write_bytes(content.encode("ascii") + tail)
 
 
-def test_synthetic_non_square_parse_write_parse(tmp_path):
+def test_synthetic_non_square_parse_save_parse(tmp_path):
     source = tmp_path / "input.with.any.suffix"
     target = tmp_path / "output.no_suffix"
     _synthetic_gfile(source)
 
     original = eqmdsk.GFile(source)
-    assert original.filename == str(source)
+    assert original.filename == source.name
+    assert original.path == str(source)
+    assert original.abspath == str(source.resolve())
     assert original["NW"] == 3
     assert original["NH"] == 2
     np.testing.assert_array_equal(
@@ -56,12 +58,29 @@ def test_synthetic_non_square_parse_write_parse(tmp_path):
 
     original["PSIRZ"][1, 2] = -99.0
     original["CURRENT"] = 8.0
-    original.write(target)
+    original.save(target)
 
     reparsed = eqmdsk.GFile(target)
     assert reparsed["PSIRZ"][1, 2] == -99.0
     assert reparsed["CURRENT"] == 8.0
     assert target.exists()
+
+
+def test_gfile_without_aux_namelist_has_empty_mapping_and_can_add_block(tmp_path):
+    source = tmp_path / "g.no-aux"
+    target = tmp_path / "g.with-aux"
+    _synthetic_gfile(source, tail=b"")
+
+    gfile = eqmdsk.GFile(source)
+    assert "AuxNamelist" in gfile
+    assert type(gfile["AuxNamelist"]) is eqmdsk.Namelist
+    assert gfile["AuxNamelist"].keys() == []
+
+    gfile["AuxNamelist"]["OUT1"] = eqmdsk.NamelistBlock({"ISHOT": 67590})
+    gfile.save(target)
+
+    reparsed = eqmdsk.GFile(target)
+    assert reparsed["AuxNamelist"]["OUT1"]["ISHOT"] == 67590
 
 
 def _extension_tail(*, mode=None, unknown=None):
@@ -93,7 +112,7 @@ def test_gfile_conditional_extension_and_unknown_tail(tmp_path):
     np.testing.assert_array_equal(gfile["EPOTEN"], [40.0, 41.0, 42.0])
     np.testing.assert_array_equal(gfile["UNPARSED_EXTENSION"], [99.0, 100.0])
     output = tmp_path / "g.ext.out"
-    gfile.write(output)
+    gfile.save(output)
     reparsed = eqmdsk.GFile(output)
     np.testing.assert_array_equal(reparsed["UNPARSED_EXTENSION"], [99.0, 100.0])
 
@@ -106,7 +125,7 @@ def test_gfile_iplcout_mode_two_roundtrip(tmp_path):
     assert gfile["PCURRZ"].shape == (2, 3)
     np.testing.assert_array_equal(gfile["CJOR"], [10.0, 11.0, 12.0])
     output = tmp_path / "g.iplcout2.out"
-    gfile.write(output)
+    gfile.save(output)
     reparsed = eqmdsk.GFile(output)
     np.testing.assert_array_equal(reparsed["PCURRZ"], gfile["PCURRZ"])
     np.testing.assert_array_equal(reparsed["BPOLSS"], gfile["BPOLSS"])
@@ -120,11 +139,11 @@ def test_real_gfile_aux_namelist_is_nested_mapping(tmp_path):
     assert "AuxNamelist" in gfile
     assert set(gfile["AuxNamelist"]) >= {"OUT1", "BASIS", "CHIOUT"}
     assert gfile["AuxNamelist"]["OUT1"]["ISHOT"] == 67590
-    with pytest.raises(TypeError, match="owning GFile"):
-        gfile["AuxNamelist"].write(tmp_path / "aux")
+    with pytest.raises(AttributeError):
+        gfile["AuxNamelist"].save(tmp_path / "aux")
     gfile["AuxNamelist"]["OUT1"]["ISHOT"] = 67591
     output = tmp_path / "g.aux-roundtrip"
-    gfile.write(output)
+    gfile.save(output)
     assert eqmdsk.GFile(output)["AuxNamelist"]["OUT1"]["ISHOT"] == 67591
 
 
@@ -141,7 +160,7 @@ def test_gfile_numeric_header_and_line_ending_variants(tmp_path):
     gfile = eqmdsk.GFile(source)
     assert gfile["RDIM"] == 1.0
     assert gfile["ZDIM"] == 2.0
-    gfile.write(output)
+    gfile.save(output)
     reparsed = eqmdsk.GFile(output)
     assert reparsed["RDIM"] == gfile["RDIM"]
 
@@ -201,11 +220,11 @@ def test_gfile_rejects_unserializable_standard_header_fields(tmp_path):
     gfile = eqmdsk.GFile(source)
     gfile["CASE"] = "X" * 49
     with pytest.raises(eqmdsk.ValidationError, match="48"):
-        gfile.write(tmp_path / "out")
+        gfile.save(tmp_path / "out")
 
     gfile["CASE"] = "bad\ncase"
     with pytest.raises(eqmdsk.ValidationError, match="printable ASCII"):
-        gfile.write(tmp_path / "out")
+        gfile.save(tmp_path / "out")
 
 
 @pytest.mark.skipif(not REAL_GFILE.exists(), reason="local EFIT fixture unavailable")
@@ -225,7 +244,7 @@ def test_real_gfile_golden_values_and_semantic_roundtrip(tmp_path):
     assert gfile.cocos.candidates == [5, 6, 15, 16]
 
     output = tmp_path / "g-roundtrip.custom"
-    gfile.write(output)
+    gfile.save(output)
     reparsed = eqmdsk.GFile(output)
     np.testing.assert_allclose(reparsed["PSIRZ"], gfile["PSIRZ"], rtol=1e-9)
 
@@ -295,12 +314,12 @@ def test_cocos_known_5_to_12_factors(tmp_path):
     np.testing.assert_allclose(converted["QPSI"], -baseline["QPSI"])
 
 
-def test_write_defaults_to_original_filename(tmp_path):
+def test_save_defaults_to_original_filename(tmp_path):
     path = tmp_path / "g.original"
     _synthetic_gfile(path)
     gfile = eqmdsk.GFile(path)
     gfile["CURRENT"] = 9.0
-    gfile.write()
+    gfile.save()
     assert eqmdsk.GFile(path)["CURRENT"] == 9.0
 
 
@@ -327,7 +346,7 @@ def test_dimension_change_requires_matching_arrays(tmp_path):
     gfile = eqmdsk.GFile(path)
     gfile["NW"] = 4
     with pytest.raises(eqmdsk.ValidationError, match="length"):
-        gfile.write(target)
+        gfile.save(target)
     assert not target.exists()
 
 
@@ -361,7 +380,7 @@ def test_cocos_all_conventions_round_trip(tmp_path):
         base["BCENTR"] = float(sigma_rho)
         base["SIMAG"] = 0.0
         base["SIBRY"] = float(sigma_bp)
-        base.write(path)
+        base.save(path)
         base = eqmdsk.GFile(path)
         assert source in base.cocos.candidates
         base.select_cocos(source)
@@ -387,13 +406,13 @@ def test_cocos_unknown_and_invalid_q_are_diagnostic(tmp_path):
 
     gfile = eqmdsk.GFile(path)
     gfile["QPSI"][:] = 0.0
-    gfile.write(path)
+    gfile.save(path)
     zero_q = eqmdsk.GFile(path)
     assert len(zero_q.cocos.candidates) == 8
     assert "QPSI" in zero_q.cocos.diagnostic
 
     zero_q["QPSI"][:] = [1.0, -1.0, 1.0]
-    zero_q.write(path)
+    zero_q.save(path)
     mixed_q = eqmdsk.GFile(path)
     assert mixed_q.cocos.candidates == []
     assert "mixed signs" in mixed_q.cocos.diagnostic

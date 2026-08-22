@@ -10,7 +10,7 @@ Git tag 和 GitHub Release 使用同一个语义版本，例如 `v0.9.0`。
 3. 构建 C++ 安装包，在空目录中用 `find_package(eqmdsk CONFIG REQUIRED)` 编译 consumer。
 4. 在没有 `extern/` 和虚拟环境的干净树中构建 sdist，再从 sdist 构建 wheel。
 5. 检查归档不包含 `.venv`、构建目录、本地数据或缓存；MIT 许可证和 notices 必须存在。
-6. 对 G/A/K/S 样本执行 parse→write→parse，并检查扩展字段和 AuxNamelist。
+6. 对 G/A/K/S 样本执行 parse→save→parse，并检查扩展字段和 AuxNamelist。
 
 常用命令：
 

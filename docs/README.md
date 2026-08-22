@@ -6,7 +6,6 @@
 
 ## 文档导航
 
-- [格式总览](formats.md)：四类文件的标准字段、扩展和取舍；
 - [G-file](gfile.md)：经典 GEQDSK、EFIT 数值扩展、`IPLCOUT`、`AuxNamelist`；
 - [A-file](afile.md)：控制记录、固定记录和计数驱动的数组；
 - [K-file](kfile.md)：Fortran namelist 的两层字典接口；
@@ -18,7 +17,7 @@
 ## 设计原则
 
 1. 构造时一次性读入，写出时一次性生成；不使用懒加载、内存映射或缓存。
-2. 保证 `parse -> write -> parse` 的字段语义一致，不保证原始字节排版一致。
+2. 保证 `parse -> save -> parse` 的字段语义一致，不保证原始字节排版一致。
 3. 只有在记录长度和控制字段能够安全确定含义时才拆分扩展；无法确定的数值放入
    `UNPARSED_EXTENSION`，绝不猜测物理含义。
 4. 标准 G/A/S 字段使用规范大写名称且不提供别名；K-file 标识符遵循 Fortran 的

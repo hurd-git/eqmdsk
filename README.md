@@ -4,7 +4,9 @@
 S 文件。它保留大型 EFIT 工具集中面向兼容性的文件读写能力，但不包含平衡分析、绘图、
 惰性加载、数据库、OMAS、MDSplus、SciPy 或其他框架集成。
 
-`0.9.0` 版本的 C++ 与 Python 公共接口共享同一套 C++ 实现。
+`0.9.0` 版本的 C++ 与 Python 公共接口共享同一套 C++ 实现。C++ 中
+`Namelist` 是无路径的实际对象；`KFile` 继承它并增加文件能力，而 G-file 的
+`AuxNamelist` 直接是 GFile 持有的 `Namelist` 实例。
 
 ## Python 快速开始
 
@@ -14,18 +16,18 @@ import eqmdsk
 gfile = eqmdsk.GFile("g123456.01234")  # 构造时立即读取完整文件
 print(gfile.keys())
 print(gfile["PSIRZ"].shape)             # (NH, NW)：行为 Z，列为 R
-print(gfile.get("AuxNamelist"))          # 可选的 OUT1/BASIS 等附加 namelist
+print(gfile.get("AuxNamelist"))          # 固定存在，可能为空或包含 OUT1/BASIS 等 block
 
 gfile["CURRENT"] = 1.2e6
 gfile["PSIRZ"][0, 0] = -0.25           # 可写的零拷贝 NumPy view
-gfile.write()                            # 写到原始路径
-gfile.write("result.with-any-suffix")   # 使用调用者给出的路径
+gfile.save()                            # 写到原始路径
+gfile.save("result.with-any-suffix")   # 使用调用者给出的路径
 ```
 
 本库不提供公共 `load()` 或 `read()` 包装函数。构造 `GFile`、`AFile`、`KFile` 或
-`SFile` 时会读取完整文件；`write()` 会一次性完成序列化与写入。
+`SFile` 时会读取完整文件；`save()` 会一次性完成序列化与写入。
 
-标准字段使用规范的 EFIT 大写名称。K-file 是两层字典，section 和变量查询遵循
+标准字段使用规范的 EFIT 大写名称。K-file 是两层字典，NamelistBlock 和变量查询遵循
 Fortran 标识符的大小写不敏感规则：
 
 ```python
@@ -53,9 +55,13 @@ gfile.to_cocos(11)
 ## 数组所有权
 
 数值数组是指向 C++ 所有 Eigen 存储的可写 NumPy view，不存在隐藏转换或复制；
-view 会保持对应文件对象或 K-file 节对象的生命周期。整数组赋值会复制到现有存储中，
-且必须保持原有 shape 和长度。C++ 侧调整容器尺寸时遵循普通 C++ 引用失效规则，
+view 会保持对应文件对象或 K-file block 对象的生命周期。整数组赋值会替换底层数组，
+长度和形状约束在 `save()` 时统一检查。C++ 侧调整容器尺寸时遵循普通 C++ 引用失效规则，
 resize 后应重新获取 NumPy view。
+
+标准字段类型严格区分整数、实数、字符串和数组类型。实数字段可以接收 Python `int`
+并在 C++ 中规范化为 `double`；整数字段不接受浮点数。目标为实数数组时，整数 NumPy
+数组可以安全转换为 `float64`，但 `float32`、字符串数组等不匹配的数组类型会被拒绝。
 
 ```python
 view = gfile["PSIRZ"]
@@ -73,10 +79,13 @@ assert view.flags.c_contiguous and view.flags.writeable
 注释、原始空格和重复赋值历史不会逐字复制。保证的是解析、规范写出、重新解析后
 公开 keys、值、数组形状和类型语义一致。
 
-更多内容参见[文档索引](docs/README.md)、[Python API 指南](docs/python-api.md)，
+更多内容参见[文档索引](docs/README.md)和[Python API 指南](docs/python-api.md)，
 以及 [G-file](docs/gfile.md)、[A-file](docs/afile.md)、[K-file](docs/kfile.md)、
-[S-file](docs/sfile.md) 独立指南。[格式与字段参考](docs/formats.md)和
-[兼容性契约](docs/compatibility.md)定义了精简 schema 与稳定性边界。
+[S-file](docs/sfile.md) 独立指南。[兼容性契约](docs/compatibility.md)定义了精简
+schema 与稳定性边界。
+
+需要从零构造标准文件时，使用 `GFile.create()`、`AFile.create()`、`KFile.create()`
+或 `SFile.create()`；字段填写顺序和最小可写示例见对应的 G/A/K/S 文件指南。
 
 ## C++ 使用
 
@@ -86,7 +95,7 @@ assert view.flags.c_contiguous and view.flags.writeable
 eqmdsk::GFile file("g123456.01234");
 auto& psi = std::get<eqmdsk::DoubleMatrix>(file.at("PSIRZ"));
 psi(0, 0) = -0.25;
-file.write("result");
+file.save("result");
 ```
 
 安装后，可通过 CMake 使用导出的静态库：

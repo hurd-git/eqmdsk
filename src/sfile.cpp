@@ -18,6 +18,9 @@
 namespace eqmdsk {
 namespace {
 
+const std::vector<std::string> kRequiredFields{"X", "Y", "DX", "DY"};
+const std::vector<std::string> kOptionalFields{"XLABEL", "YLABEL", "TITLE"};
+
 template <typename T>
 const T& require(const FieldMap& fields, const char* name) {
   const auto& value = fields.at(name);
@@ -201,8 +204,53 @@ void ensure_record_boundary(std::string& output) {
 
 }  // namespace
 
-SFile::SFile(std::string filename) : FieldFile(std::move(filename)) {
-  parse(detail::read_binary_file(filename_));
+SFile::SFile(std::string path) : SFile(std::move(path), true) {}
+
+SFile::SFile(std::string path, bool read_file)
+    : FieldFile(std::move(path)) {
+  if (read_file) {
+    parse(detail::read_binary_file(path_));
+  }
+}
+
+SFile SFile::create(std::size_t count) {
+  if (count >
+      static_cast<std::size_t>(std::numeric_limits<Eigen::Index>::max())) {
+    throw ValidationError("S-file row count is too large");
+  }
+  SFile result({}, false);
+  result.fields_.insert(
+      "X", DoubleVector::Zero(static_cast<Eigen::Index>(count)).eval(), true,
+      3);
+  result.fields_.insert(
+      "Y", DoubleVector::Zero(static_cast<Eigen::Index>(count)).eval(), true,
+      4);
+  result.fields_.insert(
+      "DX", DoubleVector::Zero(static_cast<Eigen::Index>(count)).eval(), true,
+      5);
+  result.fields_.insert(
+      "DY", DoubleVector::Zero(static_cast<Eigen::Index>(count)).eval(), true,
+      6);
+  result.mark_all_fields_missing();
+  return result;
+}
+
+const std::vector<std::string>& SFile::required_fields() const noexcept {
+  return kRequiredFields;
+}
+
+const std::vector<std::string>& SFile::optional_fields() const noexcept {
+  return kOptionalFields;
+}
+
+FieldKind SFile::field_kind(const std::string& name) const noexcept {
+  if (name == "XLABEL" || name == "YLABEL" || name == "TITLE") {
+    return FieldKind::String;
+  }
+  if (name == "X" || name == "Y" || name == "DX" || name == "DY") {
+    return FieldKind::RealVector;
+  }
+  return FieldKind::Any;
 }
 
 void SFile::parse(const std::string& bytes) {
@@ -238,7 +286,7 @@ void SFile::parse(const std::string& bytes) {
       dx.push_back(parsed.values[2]);
       dy.push_back(parsed.values[3]);
     } else if (parsed.kind == LineKind::MalformedData) {
-      throw ParseError(parsed.error, detail::path_for_diagnostic(filename_),
+      throw ParseError(parsed.error, detail::path_for_diagnostic(path_),
                        line_number, 1);
     } else if (!data_started && labels.size() < 3) {
       labels.emplace_back(content);
@@ -262,6 +310,7 @@ void SFile::parse(const std::string& bytes) {
 }
 
 void SFile::validate_for_write() const {
+  validate_required_fields();
   const auto& x = require<DoubleVector>(fields_, "X");
   const auto& y = require<DoubleVector>(fields_, "Y");
   const auto& dx = require<DoubleVector>(fields_, "DX");
@@ -301,7 +350,7 @@ void SFile::validate_for_write() const {
   }
 }
 
-void SFile::write(const std::string& path) const {
+void SFile::save(const std::string& path) const {
   validate_for_write();
   const auto& x = require<DoubleVector>(fields_, "X");
   const auto& y = require<DoubleVector>(fields_, "Y");

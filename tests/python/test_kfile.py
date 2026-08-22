@@ -46,23 +46,23 @@ def test_nested_mapping_and_canonical_roundtrip(tmp_path):
 
     kfile["INPUT"]["MIXED"] = 7
     kfile["SECOND"]["VALUE"] = 9
-    kfile.write(output)
+    kfile.save(output)
     reparsed = eqmdsk.KFile(output)
     assert reparsed["INPUT"]["MIXED"] == 7
     assert reparsed["SECOND"]["VALUE"] == 9
     assert b"outside before" not in output.read_bytes()
 
 
-def test_section_and_field_mapping_helpers(tmp_path):
+def test_block_and_field_mapping_helpers(tmp_path):
     source = tmp_path / "k"
     _synthetic(source)
     kfile = eqmdsk.KFile(source)
-    section = kfile.get("INPUT")
-    assert section is not None
-    assert section.get("MIXED") == 1
-    assert section.get("MISSING", 42) == 42
-    assert [name for name, _ in section.items()]
-    assert len(section.values()) == len(section)
+    block = kfile.get("INPUT")
+    assert block is not None
+    assert block.get("MIXED") == 1
+    assert block.get("MISSING", 42) == 42
+    assert [name for name, _ in block.items()]
+    assert len(block.values()) == len(block)
     with pytest.raises(eqmdsk.FieldError):
         _ = kfile["MISSING"]
 
@@ -77,7 +77,7 @@ def test_real_kfile_semantic_roundtrip(tmp_path):
     assert len(kfile["IN1"]["XLIM"]) == 60
 
     output = tmp_path / "real-roundtrip"
-    kfile.write(output)
+    kfile.save(output)
     reparsed = eqmdsk.KFile(output)
     assert reparsed.keys() == ["IN1"]
     assert reparsed["IN1"]["LIMITR"] == 60

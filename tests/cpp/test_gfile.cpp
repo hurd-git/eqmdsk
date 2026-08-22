@@ -55,8 +55,10 @@ int main() {
   assert(file.keys().size() == 26);
   assert(get<std::int64_t>(file, "NW") == 3);
   assert(get<eqmdsk::DoubleMatrix>(file, "PSIRZ")(1, 2) == 202.0);
+  assert(file.aux_namelist() != nullptr);
+  assert(file.aux_namelist()->empty());
   std::get<eqmdsk::DoubleMatrix>(file.at("PSIRZ"))(1, 2) = -99.0;
-  file.write(target.string());
+  file.save(target.string());
   eqmdsk::GFile reparsed(target.string());
   assert(get<eqmdsk::DoubleMatrix>(reparsed, "PSIRZ")(1, 2) == -99.0);
 
@@ -68,7 +70,7 @@ int main() {
     assert(get<eqmdsk::DoubleMatrix>(fixture, "PCURRT").rows() == 129);
     assert(fixture.aux_namelist() != nullptr);
     assert(fixture.aux_namelist()->contains("OUT1"));
-    fixture.write(target.string());
+    fixture.save(target.string());
     eqmdsk::GFile roundtrip(target.string());
     assert(roundtrip.keys() == fixture.keys());
     assert(get<eqmdsk::DoubleMatrix>(roundtrip, "PSIRZ").isApprox(

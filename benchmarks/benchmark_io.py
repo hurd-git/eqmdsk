@@ -267,7 +267,7 @@ def _run_worker(
         parsed_ns = time.perf_counter_ns() - started
 
         started = time.perf_counter_ns()
-        parsed.write(target)
+        parsed.save(target)
         write_ns = time.perf_counter_ns() - started
 
         started = time.perf_counter_ns()

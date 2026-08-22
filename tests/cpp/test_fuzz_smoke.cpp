@@ -110,7 +110,7 @@ void exercise(const std::filesystem::path& directory, const std::string& name,
     try {
       const File parsed(input);
       try {
-        parsed.write(output);
+        parsed.save(output);
         const File reparsed(output);
         static_cast<void>(reparsed);
       } catch (const eqmdsk::Error&) {

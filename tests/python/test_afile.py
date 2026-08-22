@@ -67,7 +67,7 @@ def test_synthetic_afile_and_three_digit_exponent_roundtrip(tmp_path):
     view = afile["RCO2V"]
     pointer = view.__array_interface__["data"][0]
     afile["CHISQ"] = -1.0e100
-    afile.write(output)
+    afile.save(output)
 
     assert b"-0.100000000+101" in output.read_bytes()
     assert eqmdsk.AFile(output)["CHISQ"] == pytest.approx(-1.0e100)
@@ -92,7 +92,7 @@ def test_afile_control_numeric_header_and_line_variants(tmp_path):
     afile = eqmdsk.AFile(source)
     assert afile["JFLAG"] == 1
     assert afile["CHISQ"] == 1.0
-    afile.write(output)
+    afile.save(output)
     assert eqmdsk.AFile(output)["JFLAG"] == 1
 
     # Historical files may omit the redundant third header TIME line.
@@ -100,7 +100,7 @@ def test_afile_control_numeric_header_and_line_variants(tmp_path):
     del lines[2]
     source.write_bytes(b"\n".join(lines) + b"\n")
     afile = eqmdsk.AFile(source)
-    afile.write(output)
+    afile.save(output)
     assert eqmdsk.AFile(output)["TIME"] == 1.0
 
     # Historical files can damage only the redundant F8.3 control TIME.  The
@@ -111,7 +111,7 @@ def test_afile_control_numeric_header_and_line_variants(tmp_path):
     source.write_bytes(b"\n".join(lines) + b"\n")
     recovered = eqmdsk.AFile(source)
     assert recovered["TIME"] == 1.0
-    recovered.write(output)
+    recovered.save(output)
     assert eqmdsk.AFile(output)["TIME"] == 1.0
 
     # The whitespace fallback also permits an omitted TIME token.
@@ -140,7 +140,7 @@ def test_afile_all_optional_records_and_errors(tmp_path):
 
     afile["LIMLOC"] = "A\n"
     with pytest.raises(eqmdsk.ValidationError, match="printable ASCII"):
-        afile.write(tmp_path / "bad-control")
+        afile.save(tmp_path / "bad-control")
 
     _synthetic_afile(source)
     source.write_bytes(source.read_bytes()[:400])
@@ -161,7 +161,9 @@ def test_afile_all_optional_records_and_errors(tmp_path):
 def test_real_afile_fields_and_semantic_roundtrip(tmp_path):
     afile = eqmdsk.AFile(REAL_AFILE)
 
-    assert afile.filename == str(REAL_AFILE)
+    assert afile.filename == REAL_AFILE.name
+    assert afile.path == str(REAL_AFILE)
+    assert afile.abspath == str(REAL_AFILE.resolve())
     assert afile["SHOT"] == 67590
     assert afile["TIME"] == pytest.approx(3300.0)
     assert afile["LIMLOC"] == "SNT"
@@ -184,7 +186,7 @@ def test_real_afile_fields_and_semantic_roundtrip(tmp_path):
     output = tmp_path / "a-roundtrip.any-suffix"
     afile["CHISQ"] = 12.5
     afile["RCO2V"][1] = -3.25
-    afile.write(output)
+    afile.save(output)
 
     reparsed = eqmdsk.AFile(output)
     assert reparsed["CHISQ"] == pytest.approx(12.5)
@@ -192,12 +194,12 @@ def test_real_afile_fields_and_semantic_roundtrip(tmp_path):
 
 
 @pytest.mark.skipif(not REAL_AFILE.exists(), reason="local EFIT fixture unavailable")
-def test_afile_default_write_and_strict_truncation(tmp_path):
+def test_afile_default_save_and_strict_truncation(tmp_path):
     path = tmp_path / "a"
     path.write_bytes(REAL_AFILE.read_bytes())
     afile = eqmdsk.AFile(path)
     afile["SHOT"] = 67591
-    afile.write()
+    afile.save()
     assert eqmdsk.AFile(path)["SHOT"] == 67591
 
     path.write_bytes(path.read_bytes()[:400])
