@@ -8,7 +8,28 @@ zero-copy views, while scalar assignments are forwarded to the C++ owner.
 from __future__ import annotations
 
 import os
+import sys
+from importlib.machinery import EXTENSION_SUFFIXES
+from pathlib import Path
 from typing import Any, Iterable, Iterator, List, Optional, Tuple, Type
+
+# PyCharm may put the checkout's ``python`` source root before site-packages.
+# In that development-only layout, find the compiled extension installed in the
+# same interpreter environment so importing the source facade remains useful.
+_source_package = Path(__file__).resolve().parent
+_candidate = None
+for _entry in sys.path:
+    if not _entry:
+        continue
+    _candidate = (Path(_entry) / "eqmdsk").resolve()
+    if _candidate == _source_package or not _candidate.is_dir():
+        continue
+    if any((_candidate / f"_core{suffix}").is_file()
+           for suffix in EXTENSION_SUFFIXES):
+        if os.fspath(_candidate) not in __path__:
+            __path__.append(os.fspath(_candidate))
+        break
+del _candidate, _entry, _source_package
 
 from . import _core
 
