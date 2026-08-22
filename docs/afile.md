@@ -1,19 +1,22 @@
-# A-file guide
+# A-file 指南
 
 ```python
 import eqmdsk
 
 a = eqmdsk.AFile("a067590.03300")
-print(a)
 print(a["SHOT"], a["BETAP"], a["RCO2V"].shape)
 a["BETAP"] = 0.25
 a.write("a.modified")
 ```
 
-AFile 支持 EFIT 控制记录、固定四实数记录、弦线和响应数组，以及标准可选
-记录。数组长度由 `MCO2V`、`MCO2R` 和响应计数控制；修改计数时必须同步
-修改对应数组。
+A-file 是 EFIT 输出的平衡摘要，记录由 Fortran 固定格式组成。控制字段包括
+`SHOT`、`TIME`、`JFLAG`、`LFLAG`、`LIMLOC`、`MCO2V`、`MCO2R`、`QMFLAG`、
+`NLOLD`、`NLNEW`。`MCO2V`、`MCO2R` 以及磁探针、线圈和等离子体电流相关计数决定
+弦线和响应数组长度；修改计数时必须同步修改数组。
 
-读取器对损坏或缺失的冗余 `TIME` 记录采用标准兼容回退：控制记录、第三条
-header 记录、最后使用 `0.0`。写出器根据当前公开字段生成规范 A-file，原始
-header/footer 和可选记录计数属性不对外暴露。
+读取器兼容 EFIT 常见的控制记录和可选记录，并对截断、数组长度和有限值进行校验。
+缺失或损坏的冗余 `TIME` 记录按兼容规则回退，不把内部记录计数、原始 header/footer、
+raw sections 或 Fortran 解析对象暴露给 Python。
+
+写出器按当前公开字段重建标准 A-file。它不保证原始空格、注释、可选记录顺序或字节
+级保真；保证重新读取后公开字段的语义一致。标准字段使用大写名称且不提供别名。

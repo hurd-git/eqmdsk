@@ -23,8 +23,8 @@ class KFile final : public EFITFile {
   explicit KFile(std::string filename);
   ~KFile() override;
 
-  KFile(const KFile&) = delete;
-  KFile& operator=(const KFile&) = delete;
+  KFile(const KFile& other);
+  KFile& operator=(const KFile& other);
   KFile(KFile&&) noexcept;
   KFile& operator=(KFile&&) noexcept;
 
@@ -46,6 +46,10 @@ class KFile final : public EFITFile {
   std::vector<std::string> keys() const;
 
  private:
+  friend class GFile;
+  static KFile from_string(std::string filename, const std::string& text);
+  KFile(std::string filename, bool read_file);
+  std::string serialize() const;
   void parse(const std::string& bytes);
 
   std::unique_ptr<detail::KFileImpl> impl_;

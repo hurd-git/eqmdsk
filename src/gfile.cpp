@@ -16,6 +16,7 @@
 
 #include "detail/fortran.hpp"
 #include "eqmdsk/error.hpp"
+#include "eqmdsk/kfile.hpp"
 
 namespace eqmdsk {
 namespace {
@@ -217,12 +218,72 @@ void multiply_matrix(FieldMap& fields, const char* name, double factor) {
   require<DoubleMatrix>(fields, name) *= factor;
 }
 
+std::size_t find_namelist_start(const std::string& input,
+                                std::size_t begin) {
+  for (std::size_t position = begin; position < input.size(); ++position) {
+    if (position != 0 && input[position - 1] != '\n' &&
+        input[position - 1] != '\r') {
+      continue;
+    }
+    auto probe = position;
+    while (probe < input.size() &&
+           (input[probe] == ' ' || input[probe] == '\t')) {
+      ++probe;
+    }
+    if (probe < input.size() &&
+        (input[probe] == '&' || input[probe] == '$')) {
+      return probe;
+    }
+  }
+  return std::string::npos;
+}
+
+bool has_token_before(const std::string& input, std::size_t position,
+                      std::size_t end) {
+  while (position < end &&
+         (input[position] == ' ' || input[position] == '\t' ||
+          input[position] == '\r' || input[position] == '\n' ||
+          input[position] == ',')) {
+    ++position;
+  }
+  return position < end && input[position] != '\0';
+}
+
+DoubleVector vector_from_values(const std::vector<double>& values) {
+  return to_vector(values);
+}
+
 }  // namespace
 
 GFile::GFile(std::string filename) : FieldFile(std::move(filename)) {
   parse(detail::read_binary_file(filename_));
   detect_cocos();
 }
+
+GFile::~GFile() = default;
+GFile::GFile(const GFile& other)
+    : FieldFile(other.filename_),
+      idum_(other.idum_),
+      cocos_(other.cocos_),
+      aux_namelist_(other.aux_namelist_
+                        ? std::make_unique<KFile>(*other.aux_namelist_)
+                        : nullptr) {
+  fields_ = other.fields_;
+}
+GFile& GFile::operator=(const GFile& other) {
+  if (this != &other) {
+    filename_ = other.filename_;
+    fields_ = other.fields_;
+    idum_ = other.idum_;
+    cocos_ = other.cocos_;
+    aux_namelist_ = other.aux_namelist_
+                        ? std::make_unique<KFile>(*other.aux_namelist_)
+                        : nullptr;
+  }
+  return *this;
+}
+GFile::GFile(GFile&&) noexcept = default;
+GFile& GFile::operator=(GFile&&) noexcept = default;
 
 void GFile::parse(const std::string& bytes) {
   const auto diagnostic_filename = detail::path_for_diagnostic(filename_);
@@ -344,8 +405,171 @@ void GFile::parse(const std::string& bytes) {
   fields_.insert("RLIM", std::move(rlim), true, 24);
   fields_.insert("ZLIM", std::move(zlim), true, 25);
 
-  // Additional producer-specific data is accepted but intentionally omitted
-  // by the canonical writer.
+  const auto extension_begin = cursor.position();
+  const auto aux_begin = find_namelist_start(bytes, extension_begin);
+  const auto extension_end = aux_begin == std::string::npos
+                                 ? bytes.size()
+                                 : aux_begin;
+
+  if (aux_begin != std::string::npos) {
+    aux_namelist_ = std::make_unique<KFile>(
+        KFile::from_string(filename_, bytes.substr(aux_begin)));
+  }
+
+  if (has_token_before(bytes, extension_begin, extension_end)) {
+    detail::NumericCursor extension(bytes, extension_begin, diagnostic_filename);
+    const auto kvtor = extension.next_integer("KVTOR");
+    const auto rvtor = extension.next_real("RVTOR");
+    const auto nmass = extension.next_integer("NMASS");
+    if (kvtor < 0 || nmass < 0) {
+      throw ParseError("KVTOR and NMASS must be non-negative",
+                       diagnostic_filename);
+    }
+    fields_.insert("KVTOR", kvtor, true, 26);
+    fields_.insert("RVTOR", rvtor, true, 27);
+    fields_.insert("NMASS", nmass, true, 28);
+    if (kvtor > 0) {
+      fields_.insert("PRESSW", vector_from_values(
+                                  extension.real_array(nw, "PRESSW")),
+                      false, 29);
+      fields_.insert("PWPRIM", vector_from_values(
+                                  extension.real_array(nw, "PWPRIM")),
+                      false, 30);
+    }
+    if (nmass > 0) {
+      fields_.insert("DMION", vector_from_values(
+                                  extension.real_array(nw, "DMION")),
+                      false, 31);
+    }
+    fields_.insert("RHOVN", vector_from_values(
+                                extension.real_array(nw, "RHOVN")),
+                    false, 32);
+    const auto keecur = extension.next_integer("KEECUR");
+    if (keecur < 0) {
+      throw ParseError("KEECUR must be non-negative", diagnostic_filename);
+    }
+    fields_.insert("KEECUR", keecur, true, 30);
+    if (keecur > 0) {
+      fields_.insert("EPOTEN", vector_from_values(
+                                  extension.real_array(nw, "EPOTEN")),
+                      false, 33);
+    }
+
+    if (has_token_before(bytes, extension.position(), extension_end)) {
+      const auto grid_size = detail::checked_product(nw, nh, "PCURRT");
+      const auto probe = extension.position_after_line_ending();
+
+      // IPLCOUT=1 starts with a fixed-width 4I5 record.  It is important to
+      // read that record by columns: adjacent I5 values such as NH=129 and
+      // ISHOT=67590 are legally written as ``  12967590``.
+      std::array<std::int64_t, 4> iplcout_header{};
+      bool has_iplcout_header = false;
+      const auto line_end = bytes.find('\n', probe);
+      if (line_end != std::string::npos && line_end <= extension_end &&
+          line_end - probe >= 20) {
+        has_iplcout_header = true;
+        for (std::size_t index = 0; index < 4; ++index) {
+          const auto value = parse_integer_text(
+              std::string_view(bytes.data() + probe + index * 5, 5));
+          if (!value) {
+            has_iplcout_header = false;
+            break;
+          }
+          iplcout_header[index] = *value;
+        }
+        if (has_iplcout_header &&
+            (iplcout_header[0] != static_cast<std::int64_t>(nw) ||
+             iplcout_header[1] != static_cast<std::int64_t>(nh))) {
+          has_iplcout_header = false;
+        }
+      }
+
+      std::vector<double> remaining;
+      std::vector<double> header_values;
+      if (has_iplcout_header) {
+        for (const auto value : iplcout_header) {
+          header_values.push_back(static_cast<double>(value));
+        }
+        const auto data_begin = line_end + 1;
+        detail::NumericCursor trailing(bytes, data_begin,
+                                       diagnostic_filename);
+        while (has_token_before(bytes, trailing.position(), extension_end)) {
+          remaining.push_back(trailing.next_real("IPLCOUT=1 extension"));
+        }
+      } else {
+        detail::NumericCursor trailing(bytes, probe, diagnostic_filename);
+        while (has_token_before(bytes, trailing.position(), extension_end)) {
+          remaining.push_back(trailing.next_real("G-file extension"));
+        }
+      }
+
+      if (has_iplcout_header) {
+        if (remaining.size() < 4 + grid_size) {
+          header_values.insert(header_values.end(), remaining.begin(),
+                               remaining.end());
+          fields_.insert("UNPARSED_EXTENSION",
+                         vector_from_values(std::move(header_values)), false,
+                         41);
+          return;
+        }
+        fields_.insert("IPLCOUT", static_cast<std::int64_t>(1), true, 32);
+        fields_.insert("IPLCOUT_NW", iplcout_header[0],
+                        false, 34);
+        fields_.insert("IPLCOUT_NH", iplcout_header[1],
+                        false, 35);
+        fields_.insert("IPLCOUT_ISHOT", iplcout_header[2], false, 36);
+        fields_.insert("IPLCOUT_ITIME", iplcout_header[3], false, 37);
+        fields_.insert("RGRID", vector_from_values(
+                                    {remaining[0], remaining[1]}),
+                        false, 38);
+        fields_.insert("ZGRID", vector_from_values(
+                                    {remaining[2], remaining[3]}),
+                        false, 39);
+        const auto prefix_count = remaining.size() - 4 - grid_size;
+        fields_.insert("IPLCOUT_PREFIX",
+                        vector_from_values(std::vector<double>(
+                            remaining.begin() + 4,
+                            remaining.begin() + 4 + prefix_count)),
+                        false, 40);
+        DoubleMatrix pcurrt(static_cast<Eigen::Index>(nh),
+                            static_cast<Eigen::Index>(nw));
+        const auto matrix_begin = remaining.end() -
+                                   static_cast<std::ptrdiff_t>(grid_size);
+        for (std::size_t row = 0; row < nh; ++row) {
+          for (std::size_t column = 0; column < nw; ++column) {
+            pcurrt(static_cast<Eigen::Index>(row),
+                   static_cast<Eigen::Index>(column)) =
+                matrix_begin[row * nw + column];
+          }
+        }
+        fields_.insert("PCURRT", std::move(pcurrt), false, 41);
+      } else if (remaining.size() == grid_size + 5 * nw) {
+        fields_.insert("IPLCOUT", static_cast<std::int64_t>(2), true, 32);
+        const auto matrix_end = remaining.begin() + grid_size;
+        DoubleMatrix pcurrz(static_cast<Eigen::Index>(nh),
+                             static_cast<Eigen::Index>(nw));
+        for (std::size_t row = 0; row < nh; ++row) {
+          for (std::size_t column = 0; column < nw; ++column) {
+            pcurrz(static_cast<Eigen::Index>(row),
+                   static_cast<Eigen::Index>(column)) =
+                remaining[row * nw + column];
+          }
+        }
+        fields_.insert("PCURRZ", std::move(pcurrz), false, 33);
+        const char* names[] = {"CJOR", "R1SURF", "R2SURF", "VOLP",
+                               "BPOLSS"};
+        for (std::size_t array = 0; array < 5; ++array) {
+          fields_.insert(names[array], vector_from_values(std::vector<double>(
+                                      matrix_end + array * nw,
+                                      matrix_end + (array + 1) * nw)),
+                          false, 34 + array);
+        }
+      } else {
+        fields_.insert("UNPARSED_EXTENSION",
+                       vector_from_values(std::move(remaining)), false, 41);
+      }
+    }
+  }
 }
 
 void GFile::validate_for_write() const {
@@ -405,6 +629,106 @@ void GFile::validate_for_write() const {
     if (!std::isfinite(require<double>(fields_, name))) {
       throw ValidationError(std::string(name) + " must be finite");
     }
+  }
+
+  if (fields_.contains("KVTOR") || fields_.contains("RVTOR") ||
+      fields_.contains("NMASS") || fields_.contains("RHOVN") ||
+      fields_.contains("KEECUR")) {
+    for (const auto* name : {"KVTOR", "RVTOR", "NMASS", "RHOVN",
+                             "KEECUR"}) {
+      if (!fields_.contains(name)) {
+        throw ValidationError(std::string("G-file extension is missing ") +
+                              name);
+      }
+    }
+    const auto kvtor = require<std::int64_t>(fields_, "KVTOR");
+    const auto nmass = require<std::int64_t>(fields_, "NMASS");
+    const auto keecur = require<std::int64_t>(fields_, "KEECUR");
+    if (kvtor < 0 || nmass < 0 || keecur < 0) {
+      throw ValidationError("KVTOR, NMASS, and KEECUR must be non-negative");
+    }
+    if (!std::isfinite(require<double>(fields_, "RVTOR"))) {
+      throw ValidationError("RVTOR must be finite");
+    }
+    const auto check_vector = [&](const char* name) {
+      if (!fields_.contains(name)) {
+        throw ValidationError(std::string("G-file extension is missing ") +
+                              name);
+      }
+      const auto& value = require<DoubleVector>(fields_, name);
+      if (static_cast<std::size_t>(value.size()) != nw) {
+        throw ValidationError(std::string(name) + " length must equal NW");
+      }
+      for (Eigen::Index index = 0; index < value.size(); ++index) {
+        if (!std::isfinite(value[index])) {
+          throw ValidationError(std::string(name) + " must be finite");
+        }
+      }
+    };
+    if (kvtor > 0) {
+      check_vector("PRESSW");
+      check_vector("PWPRIM");
+    }
+    if (nmass > 0) {
+      check_vector("DMION");
+    }
+    check_vector("RHOVN");
+    if (keecur > 0) {
+      check_vector("EPOTEN");
+    }
+  }
+
+  if (fields_.contains("IPLCOUT")) {
+    const auto mode = require<std::int64_t>(fields_, "IPLCOUT");
+    if (mode != 1 && mode != 2) {
+      throw ValidationError("IPLCOUT must be 1 or 2");
+    }
+    if (mode == 1) {
+      for (const auto* name : {"RGRID", "ZGRID"}) {
+        const auto& value = require<DoubleVector>(fields_, name);
+        if (value.size() != 2) {
+          throw ValidationError(std::string(name) + " must contain two values");
+        }
+      }
+      static_cast<void>(
+          require<DoubleVector>(fields_, "IPLCOUT_PREFIX"));
+      const auto& pcurrt = require<DoubleMatrix>(fields_, "PCURRT");
+      if (pcurrt.rows() != static_cast<Eigen::Index>(nh) ||
+          pcurrt.cols() != static_cast<Eigen::Index>(nw)) {
+        throw ValidationError("PCURRT shape must be (NH, NW)");
+      }
+      for (const auto* name : {"RGRID", "ZGRID", "IPLCOUT_PREFIX"}) {
+        const auto& value = require<DoubleVector>(fields_, name);
+        for (Eigen::Index index = 0; index < value.size(); ++index) {
+          if (!std::isfinite(value[index])) {
+            throw ValidationError(std::string(name) + " must be finite");
+          }
+        }
+      }
+      for (Eigen::Index row = 0; row < pcurrt.rows(); ++row) {
+        for (Eigen::Index column = 0; column < pcurrt.cols(); ++column) {
+          if (!std::isfinite(pcurrt(row, column))) {
+            throw ValidationError("PCURRT must be finite");
+          }
+        }
+      }
+    } else {
+      const auto& pcurrz = require<DoubleMatrix>(fields_, "PCURRZ");
+      if (pcurrz.rows() != static_cast<Eigen::Index>(nh) ||
+          pcurrz.cols() != static_cast<Eigen::Index>(nw)) {
+        throw ValidationError("PCURRZ shape must be (NH, NW)");
+      }
+      for (const auto* name : {"CJOR", "R1SURF", "R2SURF", "VOLP",
+                               "BPOLSS"}) {
+        const auto& value = require<DoubleVector>(fields_, name);
+        if (static_cast<std::size_t>(value.size()) != nw) {
+          throw ValidationError(std::string(name) + " length must equal NW");
+        }
+      }
+    }
+  }
+  if (fields_.contains("UNPARSED_EXTENSION")) {
+    static_cast<void>(require<DoubleVector>(fields_, "UNPARSED_EXTENSION"));
   }
 }
 
@@ -477,6 +801,87 @@ void GFile::write(const std::string& path) const {
     writer.value(zlim[static_cast<Eigen::Index>(i)]);
   }
   writer.finish_line();
+
+  if (fields_.contains("KVTOR")) {
+    const auto kvtor = require<std::int64_t>(fields_, "KVTOR");
+    const auto nmass = require<std::int64_t>(fields_, "NMASS");
+    const auto keecur = require<std::int64_t>(fields_, "KEECUR");
+    std::ostringstream extension_header;
+    extension_header.imbue(std::locale::classic());
+    extension_header << std::setw(5) << kvtor;
+    output += extension_header.str();
+    output += detail::format_e16_9(require<double>(fields_, "RVTOR"));
+    extension_header.str("");
+    extension_header.clear();
+    extension_header << std::setw(5) << nmass;
+    output += extension_header.str();
+    output += '\n';
+    if (kvtor > 0) {
+      writer.values(require<DoubleVector>(fields_, "PRESSW"));
+      writer.finish_line();
+      writer.values(require<DoubleVector>(fields_, "PWPRIM"));
+      writer.finish_line();
+    }
+    if (nmass > 0) {
+      writer.values(require<DoubleVector>(fields_, "DMION"));
+      writer.finish_line();
+    }
+    writer.values(require<DoubleVector>(fields_, "RHOVN"));
+    writer.finish_line();
+    std::ostringstream keecur_line;
+    keecur_line.imbue(std::locale::classic());
+    keecur_line << std::setw(5) << keecur << '\n';
+    output += keecur_line.str();
+    if (keecur > 0) {
+      writer.values(require<DoubleVector>(fields_, "EPOTEN"));
+      writer.finish_line();
+    }
+  }
+
+  if (fields_.contains("IPLCOUT")) {
+    const auto mode = require<std::int64_t>(fields_, "IPLCOUT");
+    if (mode == 1) {
+      std::ostringstream header_line;
+      header_line.imbue(std::locale::classic());
+      header_line << std::setw(5) << require<std::int64_t>(fields_, "IPLCOUT_NW")
+                  << std::setw(5) << require<std::int64_t>(fields_, "IPLCOUT_NH")
+                  << std::setw(5) << require<std::int64_t>(fields_, "IPLCOUT_ISHOT")
+                  << std::setw(5) << require<std::int64_t>(fields_, "IPLCOUT_ITIME")
+                  << '\n';
+      output += header_line.str();
+      writer.values(require<DoubleVector>(fields_, "RGRID"));
+      writer.values(require<DoubleVector>(fields_, "ZGRID"));
+      writer.finish_line();
+      writer.values(require<DoubleVector>(fields_, "IPLCOUT_PREFIX"));
+      const auto& pcurrt = require<DoubleMatrix>(fields_, "PCURRT");
+      for (Eigen::Index row = 0; row < pcurrt.rows(); ++row) {
+        for (Eigen::Index column = 0; column < pcurrt.cols(); ++column) {
+          writer.value(pcurrt(row, column));
+        }
+      }
+      writer.finish_line();
+    } else {
+      const auto& pcurrz = require<DoubleMatrix>(fields_, "PCURRZ");
+      for (Eigen::Index row = 0; row < pcurrz.rows(); ++row) {
+        for (Eigen::Index column = 0; column < pcurrz.cols(); ++column) {
+          writer.value(pcurrz(row, column));
+        }
+      }
+      writer.finish_line();
+      for (const auto* name : {"CJOR", "R1SURF", "R2SURF", "VOLP",
+                               "BPOLSS"}) {
+        writer.values(require<DoubleVector>(fields_, name));
+        writer.finish_line();
+      }
+    }
+  }
+  if (fields_.contains("UNPARSED_EXTENSION")) {
+    writer.values(require<DoubleVector>(fields_, "UNPARSED_EXTENSION"));
+    writer.finish_line();
+  }
+  if (aux_namelist_) {
+    output += aux_namelist_->serialize();
+  }
   detail::write_binary_file(path, output);
 }
 

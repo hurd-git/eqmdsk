@@ -64,6 +64,69 @@ def test_synthetic_non_square_parse_write_parse(tmp_path):
     assert target.exists()
 
 
+def _extension_tail(*, mode=None, unknown=None):
+    values = []
+    values.append(f"{1:5d}{1.7:16.9E}{1:5d}\n")
+    values.append(_line([10.0, 11.0, 12.0]))  # PRESSW
+    values.append(_line([20.0, 21.0, 22.0]))  # PWPRIM
+    values.append(_line([30.0, 31.0, 32.0]))  # DMION
+    values.append(_line([0.0, 0.1, 0.2]))  # RHOVN
+    values.append(f"{1:5d}\n")  # KEECUR
+    values.append(_line([40.0, 41.0, 42.0]))  # EPOTEN
+    if mode == 2:
+        values.append(_line([float(i) for i in range(6)]))
+        for base in (10.0, 20.0, 30.0, 40.0, 50.0):
+            values.append(_line([base, base + 1.0, base + 2.0]))
+    elif unknown is not None:
+        values.append(_line(unknown))
+    return "".join(values).encode("ascii")
+
+
+def test_gfile_conditional_extension_and_unknown_tail(tmp_path):
+    source = tmp_path / "g.ext"
+    _synthetic_gfile(source, tail=_extension_tail(unknown=[99.0, 100.0]))
+    gfile = eqmdsk.GFile(source)
+    assert gfile["KVTOR"] == 1
+    np.testing.assert_array_equal(gfile["PRESSW"], [10.0, 11.0, 12.0])
+    np.testing.assert_array_equal(gfile["PWPRIM"], [20.0, 21.0, 22.0])
+    np.testing.assert_array_equal(gfile["DMION"], [30.0, 31.0, 32.0])
+    np.testing.assert_array_equal(gfile["EPOTEN"], [40.0, 41.0, 42.0])
+    np.testing.assert_array_equal(gfile["UNPARSED_EXTENSION"], [99.0, 100.0])
+    output = tmp_path / "g.ext.out"
+    gfile.write(output)
+    reparsed = eqmdsk.GFile(output)
+    np.testing.assert_array_equal(reparsed["UNPARSED_EXTENSION"], [99.0, 100.0])
+
+
+def test_gfile_iplcout_mode_two_roundtrip(tmp_path):
+    source = tmp_path / "g.iplcout2"
+    _synthetic_gfile(source, tail=_extension_tail(mode=2))
+    gfile = eqmdsk.GFile(source)
+    assert gfile["IPLCOUT"] == 2
+    assert gfile["PCURRZ"].shape == (2, 3)
+    np.testing.assert_array_equal(gfile["CJOR"], [10.0, 11.0, 12.0])
+    output = tmp_path / "g.iplcout2.out"
+    gfile.write(output)
+    reparsed = eqmdsk.GFile(output)
+    np.testing.assert_array_equal(reparsed["PCURRZ"], gfile["PCURRZ"])
+    np.testing.assert_array_equal(reparsed["BPOLSS"], gfile["BPOLSS"])
+
+
+def test_real_gfile_aux_namelist_is_nested_mapping(tmp_path):
+    if not REAL_GFILE.exists():
+        pytest.skip("local EFIT fixture unavailable")
+    gfile = eqmdsk.GFile(REAL_GFILE)
+    assert "AuxNamelist" in gfile
+    assert set(gfile["AuxNamelist"]) >= {"OUT1", "BASIS", "CHIOUT"}
+    assert gfile["AuxNamelist"]["OUT1"]["ISHOT"] == 67590
+    with pytest.raises(TypeError, match="owning GFile"):
+        gfile["AuxNamelist"].write(tmp_path / "aux")
+    gfile["AuxNamelist"]["OUT1"]["ISHOT"] = 67591
+    output = tmp_path / "g.aux-roundtrip"
+    gfile.write(output)
+    assert eqmdsk.GFile(output)["AuxNamelist"]["OUT1"]["ISHOT"] == 67591
+
+
 def test_gfile_numeric_header_and_line_ending_variants(tmp_path):
     source = tmp_path / "g.variants"
     output = tmp_path / "g.variants.out"

@@ -14,6 +14,7 @@ import eqmdsk
 gfile = eqmdsk.GFile("g123456.01234")  # 构造时立即读取完整文件
 print(gfile.keys())
 print(gfile["PSIRZ"].shape)             # (NH, NW)：行为 Z，列为 R
+print(gfile.get("AuxNamelist"))          # 可选的 OUT1/BASIS 等附加 namelist
 
 gfile["CURRENT"] = 1.2e6
 gfile["PSIRZ"][0, 0] = -0.25           # 可写的零拷贝 NumPy view
@@ -66,10 +67,11 @@ assert view.flags.c_contiguous and view.flags.writeable
 公共异常包括 `Error`、`IOError`、`ParseError`、`ValidationError`、`FieldError`
 和 `CocosError`。Python 的 `ParseError` 实例还提供 `filename`、`line`、`column`。
 
-读取器接受常见的 EFIT/Fortran 排版变体，但 writer 只从公开标准字段重新生成规范
-文本。注释、原始空格、重复赋值历史、非标准尾部和二进制扩展区不属于公开模型，
-也不会被原样复制。保证的是解析、规范写出、重新解析后公开 keys、值、数组形状和
-类型语义一致。
+读取器接受常见的 EFIT/Fortran 排版变体，并识别经典 G-file 主体、标准 EFIT 数值
+扩展、`IPLCOUT` 数据和尾部 `AuxNamelist`。无法安全解释的数值扩展保留为
+`UNPARSED_EXTENSION`，不会猜测物理含义。writer 从公开字段重新生成规范文本；
+注释、原始空格和重复赋值历史不会逐字复制。保证的是解析、规范写出、重新解析后
+公开 keys、值、数组形状和类型语义一致。
 
 更多内容参见[文档索引](docs/README.md)、[Python API 指南](docs/python-api.md)，
 以及 [G-file](docs/gfile.md)、[A-file](docs/afile.md)、[K-file](docs/kfile.md)、

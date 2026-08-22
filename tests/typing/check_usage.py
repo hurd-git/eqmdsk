@@ -23,12 +23,13 @@ def check_gfile(g: eqmdsk.GFile) -> None:
     nw: int = g["NW"]
     current: float = g["CURRENT"]
     psi: NDArray[np.float64] = g["PSIRZ"]
+    aux: eqmdsk.KFile = g["AuxNamelist"]
     converted: eqmdsk.GFile = g.to_cocos(
         to_cocos=11, from_cocos=5, inplace=False
     )
     result: eqmdsk.CocosResult = g.cocos
     target: str = g.filename
-    _ = (case, nw, current, psi, converted, result, target)
+    _ = (case, nw, current, psi, aux, converted, result, target)
 
 
 def check_afile(a: eqmdsk.AFile) -> None:

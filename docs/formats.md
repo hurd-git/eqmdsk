@@ -1,50 +1,66 @@
-# Formats and public fields
+# EFIT 格式与公开字段
 
-eqmdsk 支持 EFIT G/A/K/S 四种文件。四个 Python 类都在读取时加载完整文件，
-通过字典式接口暴露标准字段，并按规范重新生成输出。库不提供自动格式检测，
-调用者应显式选择 `GFile`、`AFile`、`KFile` 或 `SFile`。
+eqmdsk 支持 EFIT 常见的 G、A、K、S 四类文件。调用者应显式选择对应的类，库不
+根据文件名后缀猜测类型。四类文件在构造时完整读取，并通过字典式接口公开可解释
+的字段。
 
-## GFile
+## G-file（GEQDSK）
 
-公开字段包括：
+经典主体由 `NW`、`NH`、`NBBBS`、`LIMITR` 决定长度：20 个标量、四组长度为
+`NW` 的 profile、`NH*NW` 个 `PSIRZ`、长度为 `NW` 的 `QPSI`、边界和限制器坐标。
+`PSIRZ` 按 `(NH, NW)` 暴露。经典字段包括 `CASE`、几何/磁平衡标量、`FPOL`、
+`PRES`、`FFPRIM`、`PPRIME`、`PSIRZ`、`QPSI`、边界计数和坐标。
 
-- `CASE`、`NW`、`NH`；
-- 几何和磁平衡标量 `RDIM`、`ZDIM`、`RCENTR`、`RLEFT`、`ZMID`、`RMAXIS`、
-  `ZMAXIS`、`SIMAG`、`SIBRY`、`BCENTR`、`CURRENT`；
-- `FPOL`、`PRES`、`FFPRIM`、`PPRIME`、`QPSI` 一维数组；
-- `PSIRZ` 二维数组；
-- `NBBBS`、`LIMITR` 及边界和限制器坐标数组。
-
-写出器检查数组长度、网格尺寸、边界数量和有限数值，并生成标准 GEQDSK
-数字记录。COCOS 检测与转换只在 GFile 上提供。
-
-## AFile
-
-AFile 公开 EFIT 标准控制字段、固定四实数记录、弦线数组、响应数组和最多
-十五组可选标准记录。控制字段包括：
+EFIT 可能在主体后追加：
 
 ```text
-SHOT TIME JFLAG LFLAG LIMLOC MCO2V MCO2R QMFLAG NLOLD NLNEW
+KVTOR RVTOR NMASS
+PRESSW PWPRIM       # KVTOR > 0
+DMION               # NMASS > 0
+RHOVN
+KEECUR
+EPOTEN              # KEECUR > 0
 ```
 
-`MCO2V`、`MCO2R`、`NSILOP0`、`MAGPRI0`、`NFCOIL0`、`NESUM0` 控制对应数组
-长度。写出器会根据当前字段重建标准 header、控制记录和数据记录；原始
-header/footer、记录数量属性和其他排版信息不属于公开 API。
+`IPLCOUT=2` 在完整长度匹配时公开为 `PCURRZ`、`CJOR`、`R1SURF`、`R2SURF`、
+`VOLP`、`BPOLSS`。`IPLCOUT=1` 的四个整数头按固定 `I5` 列解析，随后保留
+`RGRID`、`ZGRID`、可变长度的 `IPLCOUT_PREFIX` 和 `(NH, NW)` 的 `PCURRT`。
+F-coil/E-coil 数量不写在 G-file 中，前缀不能安全命名为 `BRSP` 或 `ECURRT`。
+无法分类的数值保留为 `UNPARSED_EXTENSION`，仍可查看和写回。扩展字段不盲目参与
+COCOS 变换。
 
-## KFile
+## AuxNamelist
 
-KFile 是两层映射：`kfile[section][variable]`。节和变量名大小写不敏感，
-重复赋值采用最后一个有效值。复杂 namelist 语法不会进入公开映射。写出器
-生成稳定的 Fortran namelist 文本。
+G-file 尾部可能有 `&OUT1`、`&BASIS`、`&CHIOUT` 等 Fortran namelist。OMFIT 将
+它们放入名为 `AuxNamelist` 的容器，文件中并没有字面量 `&AuxNamelist`。eqmdsk
+采用同样的结构：
 
-## SFile
+```python
+g["AuxNamelist"]["OUT1"]["ISHOT"]
+```
 
-SFile 的标准字段为可选的 `XLABEL`、`YLABEL`、`TITLE` 和四个等长数组
-`X`、`Y`、`DX`、`DY`。每一行数据必须包含四个有限实数。写出器输出可选标签
-和四列标准数据，忽略输入中的非标准穿插文本。
+section 名称不硬编码，其他 EFIT 版本的附加 section 也可读取。写出只生成公开
+投影的 canonical namelist，不保证注释和原始排版。应修改嵌套字段后调用 G-file
+的 `write()`，不要单独把 AuxNamelist 当作普通 K-file 覆盖原文件。
+
+## A-file
+
+A-file 按固定 Fortran 记录组织摘要。`MCO2V`、`MCO2R`、`NSILOP0`、`MAGPRI0`、
+`NFCOIL0`、`NESUM0` 等控制字段决定后续数组长度。读取器检查计数、记录和有限值；
+写出器从公开字段重建标准记录。原始 header/footer 和内部计数不属于公开接口。
+
+## K-file
+
+K-file 是 Fortran namelist，section 不固定。`IN1` 常见但不保证存在，也可能有
+`INWANT`、`INS`、`INSXR`、`EFITIN` 等。接口是 `k["IN1"]["LIMITR"]`；不允许
+随意创建未知 section/变量。复杂索引和无法安全投影的语法不伪装成普通字段。
+
+## S-file
+
+S-file 可有 `XLABEL`、`YLABEL`、`TITLE` 三个标签，数据为等长的 `X`、`Y`、
+`DX`、`DY` 四列有限实数。非标准穿插文本可读取但规范写出会丢弃。
 
 ## 路径和文本
 
-C++ 接口使用 UTF-8/本机字符串路径；Python 构造和写出接受字符串或
-`PathLike[str]`，`filename` 返回 `str`。标准文本字段在 Python 中返回 `str`，
-不返回 `bytes`。
+C++ 使用字符串路径，Python 接受 `str` 和 `PathLike[str]`。`filename`、`CASE`、
+标签和 K-file 字符串以 Python `str` 返回，不以 `bytes` 暴露。

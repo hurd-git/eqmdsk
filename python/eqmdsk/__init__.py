@@ -91,7 +91,7 @@ class _FileMapping(dict):
     def __contains__(self, name: object) -> bool:
         if not isinstance(name, str):
             return False
-        return bool(self._core.__contains__(self._key(name)))
+        return dict.__contains__(self, self._key(name))
 
     def __getitem__(self, name: str) -> Any:
         key = self._key(name)
@@ -177,6 +177,18 @@ class GFile(_FileMapping):
     def __init__(self, filename: Any) -> None:
         super().__init__(filename)
 
+    @property
+    def aux_namelist(self) -> Optional["KFile"]:
+        return dict.get(self, "AuxNamelist")
+
+    def _refresh(self) -> None:
+        dict.clear(self)
+        for name in self._core.keys():
+            dict.__setitem__(self, name, _field_value(self._core, name))
+        aux = getattr(self._core, "aux_namelist", None)
+        if aux is not None:
+            dict.__setitem__(self, "AuxNamelist", _AuxNamelist._from_core(aux))
+
     def select_cocos(self, source: int) -> None:
         self._core.select_cocos(source)
 
@@ -191,6 +203,11 @@ class GFile(_FileMapping):
             self._refresh()
             return self
         return type(self)._from_core(converted)
+
+    def __setitem__(self, name: str, value: Any) -> None:
+        if name == "AuxNamelist":
+            raise TypeError("modify AuxNamelist sections and fields in place")
+        super().__setitem__(name, value)
 
 
 class AFile(_FileMapping):
@@ -322,6 +339,13 @@ class KFile(_FileMapping):
 
     def __setitem__(self, name: str, value: Any) -> None:
         raise TypeError("assign variables through kfile[section][name]")
+
+
+class _AuxNamelist(KFile):
+    _display_name = "AuxNamelist"
+
+    def write(self, path: Optional[Any] = None) -> None:
+        raise TypeError("write the owning GFile instead of AuxNamelist")
 
 
 __all__ = [

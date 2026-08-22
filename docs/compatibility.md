@@ -1,87 +1,43 @@
-# Compatibility contract
+# 兼容性说明
 
-## Toolchain and platform targets
+## 支持范围
 
-| Component | Supported target | Locally verified for 0.9.0 |
-| --- | --- | --- |
-| C++ | C++17; GCC 11+, Clang 14+, AppleClang 14+, MSVC 2022 | GCC 13.3 |
-| CMake | 3.18+ | 3.18.4 and 3.28.3 |
-| Python | CPython 3.9–3.14 | CPython 3.9.25–3.14.6 on Linux |
-| NumPy | 1.23+ | 2.0.2, 2.2.6, 2.4.6, and 2.5.2 |
-| Eigen | 3.4+ or pinned 5.0.1 fallback | 5.0.1 |
-| pybind11 | 2.12+ build dependency | 3.1.0 |
-| OS | Linux, macOS, Windows | Linux x86-64 |
+| 组件 | 目标范围 |
+| --- | --- |
+| C++ | C++17；GCC、Clang、AppleClang、MSVC 现代版本 |
+| CMake | 3.18 及以上 |
+| Python | CPython 3.9 及以上，CI 覆盖已配置版本 |
+| NumPy | 1.23 及以上 |
+| Eigen | 3.4 及以上；可使用构建时固定回退版本 |
+| pybind11 | 2.12 及以上，仅构建依赖 |
+| 操作系统 | Linux、macOS、Windows |
 
-The non-Linux rows are portability targets exercised by the checked-in CI and
-wheel matrices once the repository is hosted; they are not claims of local
-execution in this local-only repository. The Python metadata intentionally
-states the minimum (`>=3.9`) rather than rejecting future CPython versions;
-versions newer than the tested range are not guaranteed until added to CI.
-Expanding the matrix must not add format-specific compatibility layers.
+项目只是完整文件读写，不依赖操作系统特有服务；路径处理使用标准库，尽量保持跨
+平台。`extern/` 中的 Eigen 和 pybind11 用于本地构建，不作为运行时服务，也不提交
+进核心 Git 历史。
 
-The native macOS wheels use deployment targets of macOS 10.15 for Intel and
-macOS 11.0 for arm64. These minimums are required by the C++17
-`std::filesystem` implementation used by the public API.
+## 0.9.0 API 边界
 
-## Stable 0.9 API surface
+稳定重点是四类文件构造、显式路径写出、字典式字段访问、错误层次、G-file COCOS、
+嵌套 K-file 和公开字段名称/形状。1.0 之前允许修复正确性问题，但不承诺跨编译器
+C++ ABI；C++ 使用者应使用自己的工具链重新构建。
 
-The compatibility focus is constructors, explicit path writing, mapping access,
-the error hierarchy, G-file COCOS behavior, nested K-file access, and the
-documented field names/shapes. Correctness fixes may still make small source
-changes before 1.0. No cross-compiler or cross-standard-library C++ ABI promise
-is made before 1.0; the installed static library and headers should be rebuilt
-with the consuming toolchain. Because Eigen types occur in the public API, the
-consumer must also use a compatible Eigen 3.4+ installation. Official Python
-wheel builds use the checksum-pinned Eigen fallback and do not distribute the
-C++ SDK artifacts.
+标准 G/A/S 字段没有别名。K-file section/变量按 Fortran 大小写不敏感。内部解析对象、
+原始 header/footer、`RawSection`、`sections`、`optional_record_count` 等不是最终
+Python API；调试器中暂时看到它们也不应依赖。
 
-The Python distribution is marked as typed. Its bundled `__init__.pyi` covers
-the complete public binding, including field-name-specific return types for
-fixed G-, A-, and S-file schemas and the dynamic K-file value union. Type stub
-corrections that make annotations match existing runtime behavior are not
-runtime API changes.
+## 资源和性能
 
-## Distribution boundary
+库对每个文件完整读取和完整写出，不提供懒加载、数据库、OMAS、MDSplus、平衡磁面
+分析、绘图或派生网格。G-file 的 `NW/NH`、边界计数和 K-file 投影规模在分配前检查，
+避免整数溢出和恶意尺寸；数组修改保持既有形状。
 
-- Source archives contain everything needed to build the Python extension or
-  the C++ SDK, but do not contain the local `extern/` dependency trees.
-- Python wheels contain the Python package, extension, and license material;
-  they include `__init__.pyi` and `py.typed`, and intentionally omit headers,
-  static libraries, and CMake package files.
-- `cmake --install ... --component Development` installs the C++ headers,
-  static library, CMake package, and notices from a source build.
-- Cibuildwheel configuration produces repaired manylinux wheels and native
-  macOS/Windows wheels for each supported CPython ABI. A plain local Linux
-  wheel is a packaging test artifact, not a PyPI release artifact.
+写出会先完成序列化和校验，再打开目标文件；底层设备在写出中途失败时不承诺事务性
+替换。所有格式均采用语义等价而非原始字节保真。
 
-## Deliberate boundaries
+## 扩展兼容原则
 
-- Files are read and written as complete byte sequences. There is no mmap,
-  streaming, lazy loading, or cache.
-- Serialization and schema validation finish before the destination is opened,
-  and close-time I/O failures are reported. Replacement is not transactional:
-  a device or filesystem failure during output can leave a partial file.
-- Readers accept common unknown or producer-specific syntax without exposing it
-  as a second public model. Writers generate only the documented standard fields.
-- Semantic parse/write/parse equivalence is required. Universal byte-for-byte
-  identity is not; comments, line endings, original spelling and numeric
-  formatting may be canonicalized.
-- Python whole-array assignment preserves shape. C++ resize invalidates prior
-  references/views in the normal C++ manner.
-- Standard G/A/S fields are canonical uppercase names and have no aliases.
-  K-file section and variable identifiers remain case-insensitive according to
-  Fortran namelist rules.
-- COCOS detection/conversion applies only to G-files; conversion never guesses
-  an ambiguous source when `from_cocos` is omitted, while an explicit supported
-  `from_cocos` may override incomplete file metadata.
-- There is no equilibrium analysis, derived coordinate/grid calculation,
-  plotting, database, OMAS, or MDSplus integration.
-
-## Resource behavior
-
-Dimensions and counts are checked before multiplication and allocation and are
-bounded by available file data. G-file output dimensions use four-character
-fields; boundary counts use five. K-file convenience expansion is capped at ten
-million effective values and 64 MiB of projected string storage per file;
-assignments above those limits are omitted from the public mapping. File sizes
-must fit both `size_t` and `streamsize`.
+参考 OMFIT 的广泛兼容顺序读取条件记录，但只在控制字段明确决定长度时拆分。
+`IPLCOUT=1` 的 F/E coil 数量来自文件外部，不能从 G-file 猜测，因此前缀保留为
+`IPLCOUT_PREFIX`。其他无法确认含义的数值保留为 `UNPARSED_EXTENSION`，用户可查看、
+修改并写回，而不会被错误标记为某个物理量。

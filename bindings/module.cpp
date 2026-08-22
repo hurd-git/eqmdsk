@@ -357,6 +357,9 @@ PYBIND11_MODULE(_core, module) {
       .def("write", &write_file<eqmdsk::GFile>, py::arg("path") = py::none())
       .def_property_readonly("cocos", &eqmdsk::GFile::cocos,
                              py::return_value_policy::reference_internal)
+      .def_property_readonly("aux_namelist", [](eqmdsk::GFile& self) {
+        return self.aux_namelist();
+      }, py::return_value_policy::reference_internal)
       .def("select_cocos", &eqmdsk::GFile::select_cocos, py::arg("source"))
       .def("to_cocos", [](eqmdsk::GFile& self, int target,
                            const std::optional<int>& from_cocos,

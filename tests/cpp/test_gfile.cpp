@@ -8,6 +8,7 @@
 #include <string>
 
 #include "eqmdsk/gfile.hpp"
+#include "eqmdsk/kfile.hpp"
 
 namespace {
 template <typename T>
@@ -63,11 +64,19 @@ int main() {
   if (std::filesystem::exists(real)) {
     eqmdsk::GFile fixture(real.string());
     assert(get<std::int64_t>(fixture, "NW") == 129);
+    assert(get<std::int64_t>(fixture, "IPLCOUT") == 1);
+    assert(get<eqmdsk::DoubleMatrix>(fixture, "PCURRT").rows() == 129);
+    assert(fixture.aux_namelist() != nullptr);
+    assert(fixture.aux_namelist()->contains("OUT1"));
     fixture.write(target.string());
     eqmdsk::GFile roundtrip(target.string());
     assert(roundtrip.keys() == fixture.keys());
     assert(get<eqmdsk::DoubleMatrix>(roundtrip, "PSIRZ").isApprox(
         get<eqmdsk::DoubleMatrix>(fixture, "PSIRZ"), 2e-9));
+    assert(get<eqmdsk::DoubleMatrix>(roundtrip, "PCURRT").isApprox(
+        get<eqmdsk::DoubleMatrix>(fixture, "PCURRT"), 2e-9));
+    assert(roundtrip.aux_namelist() != nullptr);
+    assert(roundtrip.aux_namelist()->keys() == fixture.aux_namelist()->keys());
   }
   std::error_code ignored;
   std::filesystem::remove(source, ignored);

@@ -1061,11 +1061,32 @@ const std::string& detail::NamelistValue::as_raw() const {
 }
 
 KFile::KFile(std::string filename)
+    : KFile(std::move(filename), true) {}
+
+KFile::KFile(std::string filename, bool read_file)
     : EFITFile(std::move(filename)), impl_(std::make_unique<detail::KFileImpl>()) {
-  parse(detail::read_binary_file(filename_));
+  if (read_file) {
+    parse(detail::read_binary_file(filename_));
+  }
+}
+
+KFile KFile::from_string(std::string filename, const std::string& text) {
+  KFile result(std::move(filename), false);
+  result.parse(text);
+  return result;
 }
 
 KFile::~KFile() = default;
+KFile::KFile(const KFile& other)
+    : EFITFile(other.filename_),
+      impl_(std::make_unique<detail::KFileImpl>(*other.impl_)) {}
+KFile& KFile::operator=(const KFile& other) {
+  if (this != &other) {
+    filename_ = other.filename_;
+    impl_ = std::make_unique<detail::KFileImpl>(*other.impl_);
+  }
+  return *this;
+}
 KFile::KFile(KFile&&) noexcept = default;
 KFile& KFile::operator=(KFile&&) noexcept = default;
 
@@ -1207,7 +1228,7 @@ std::vector<std::string> KFile::keys() const {
   return result;
 }
 
-void KFile::write(const std::string& path) const {
+std::string KFile::serialize() const {
   std::string output;
   for (const auto& section : impl_->projected_sections) {
     output += '&';
@@ -1228,6 +1249,11 @@ void KFile::write(const std::string& path) const {
     }
     output += "/\n";
   }
+  return output;
+}
+
+void KFile::write(const std::string& path) const {
+  const auto output = serialize();
   detail::write_binary_file(path, output);
 }
 

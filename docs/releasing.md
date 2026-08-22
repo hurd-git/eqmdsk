@@ -1,52 +1,18 @@
-# Release checklist
+# 发布准备
 
-Publishing is intentionally separate from normal development. A release is
-created from one semantic-version tag such as `v0.9.0`. The checked-in release
-workflow builds the sdist and the complete cibuildwheel matrix, verifies that
-every artifact has the same version, and uploads a combined artifact for review.
-It does not publish anything by default. A future, explicit manual dispatch on
-the tag with `publish=true` will publish those exact files to PyPI and then
-create the matching GitHub Release with the same files. It never publishes from
-`main` without a tag.
+当前阶段只维护本地 Git，不推送远程，也不立即发布 PyPI。未来发布应让 PyPI 版本、
+Git tag 和 GitHub Release 使用同一个语义版本，例如 `v0.9.0`。
 
-1. Update the version in `CMakeLists.txt`, `pyproject.toml`, and
-   `include/eqmdsk/version.hpp`; move the CHANGELOG entry out of Unreleased.
-2. Confirm `git status --short` is empty and all intended files are tracked.
-3. Run the GCC C++ suite, Python 3.9–3.14 suite, ASan/UBSan suite, and—where
-   available—the Clang libFuzzer smoke run.
-4. Install the C++ artifacts to an empty prefix and build
-   `tests/consumer` using only `find_package(eqmdsk CONFIG REQUIRED)`.
-5. Build a wheel and sdist from a tree with `extern/` unavailable. Build a
-   second wheel from the sdist.
-6. Inspect archives: no `extern`, `.venv`, build tree, downloaded fixtures, or
-   cache; MIT and complete third-party notices must be present. Confirm that
-   wheels contain no C++ SDK artifacts and that the sdist, direct wheel, and
-   sdist-rebuilt wheel all contain `__init__.pyi` and an empty `py.typed`.
-7. Install the wheel into a clean virtual environment and run import/version
-   plus the packaged behavior smoke tests. Run the checked-in strict mypy usage
-   check and `mypy.stubtest` against that installed wheel.
-8. Run package metadata validation and verify `Requires-Python`, NumPy
-   dependency, classifiers, and license expression.
-9. Execute the supported OS/Python CI matrix and the cibuildwheel matrix. Linux
-   release wheels must have repaired manylinux tags; build both Intel and ARM
-   macOS wheels and the Windows x64 wheels.
-10. Fetch and checksum the optional public compatibility corpus, then run its
-    parse/write/parse tests. Archive an updated benchmark result when behavior
-    or parsing performance changed materially.
-11. Create and push the release tag only after all checks pass. The tag workflow
-    only prepares and uploads artifacts; it does not publish PyPI or create a
-    Release.
-12. Before the first real release, configure a PyPI Trusted Publisher for this
-    repository and `.github/workflows/wheels.yml` with the
-    `pypa/gh-action-pypi-publish` action. Then manually dispatch the workflow on
-    the exact `vX.Y.Z` tag with `publish=true`. The publishing job requires
-    `contents: write` and `id-token: write`; no long-lived PyPI token is stored
-    in the repository.
-13. Inspect the completed publishing workflow and confirm that the PyPI version
-    and GitHub Release tag are identical. It publishes PyPI first, so a failed
-    PyPI publication does not create a public GitHub Release.
+## 本地检查
 
-Recommended local commands:
+1. 确认 `CMakeLists.txt`、`pyproject.toml` 和 `include/eqmdsk/version.hpp` 版本一致。
+2. 运行 C++、Python、模糊解析 smoke、类型检查和 stubtest。
+3. 构建 C++ 安装包，在空目录中用 `find_package(eqmdsk CONFIG REQUIRED)` 编译 consumer。
+4. 在没有 `extern/` 和虚拟环境的干净树中构建 sdist，再从 sdist 构建 wheel。
+5. 检查归档不包含 `.venv`、构建目录、本地数据或缓存；MIT 许可证和 notices 必须存在。
+6. 对 G/A/K/S 样本执行 parse→write→parse，并检查扩展字段和 AuxNamelist。
+
+常用命令：
 
 ```console
 uv build --wheel --sdist
@@ -55,8 +21,12 @@ uv pip install --python build/release-venv/bin/python dist/eqmdsk-0.9.0-*.whl
 build/release-venv/bin/python -c "import eqmdsk; print(eqmdsk.__version__)"
 ```
 
-The `uv build` wheel above verifies local package composition only. Build
-publishable wheels with the checked-in cibuildwheel workflow; it performs the
-platform repair/audit step and tests each resulting wheel. A tag push invokes
-the preparation workflow only. The PyPI and GitHub Release actions are gated by
-the explicit `workflow_dispatch` `publish=true` input described above.
+## CI、wheels 与 PyPI
+
+普通 CI workflow 负责在不同操作系统和 Python 版本上运行测试、类型检查和源码构建；
+`wheels.yml` 负责 cibuildwheel 矩阵，生成并测试各平台 wheel，同时生成 sdist。两者
+都不应从 `main` 自动发布 PyPI。
+
+未来可在精确的 `vX.Y.Z` tag 上手动触发发布 job：先上传同一批 wheel/sdist 到 PyPI，再
+创建带有相同文件的 GitHub Release。推荐使用 PyPI Trusted Publisher，不在仓库保存长期
+token。发布失败时不创建 GitHub Release，避免两边版本不一致。
