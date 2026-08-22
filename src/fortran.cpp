@@ -215,19 +215,62 @@ std::string rtrim_copy(std::string_view value) {
 }
 
 bool parse_fortran_real(std::string_view text, double& value) {
-  auto token = trim_copy(text);
-  if (token.empty()) {
+  auto first = text.begin();
+  auto last = text.end();
+  while (first != last && (*first == ' ' || *first == '\t' ||
+                           *first == '\r' || *first == '\n')) {
+    ++first;
+  }
+  while (last != first && (*(last - 1) == ' ' || *(last - 1) == '\t' ||
+                           *(last - 1) == '\r' || *(last - 1) == '\n')) {
+    --last;
+  }
+  if (first == last) {
     return false;
   }
+  auto token_view = std::string_view(&*first,
+                                     static_cast<std::size_t>(last - first));
+  // The common E/e form can be parsed without allocating or constructing a
+  // locale-aware stream. Fortran D exponents and omitted exponent markers use
+  // the compatibility path below.
+  const auto decimal = token_view.find('.');
+  const auto exponent = token_view.find_first_of("Ee");
+  const auto has_d_exponent = token_view.find_first_of("Dd") !=
+                              std::string_view::npos;
+  const auto omitted_exponent =
+      decimal != std::string_view::npos && exponent == std::string_view::npos &&
+      token_view.find_first_of("+-", decimal + 1) != std::string_view::npos;
+  if (!has_d_exponent && !omitted_exponent) {
+    auto number = token_view;
+    if (!number.empty() && number.front() == '+') {
+      number.remove_prefix(1);
+    }
+    if (!number.empty()) {
+      double parsed = 0.0;
+      const auto result = std::from_chars(
+          number.data(), number.data() + number.size(), parsed,
+          std::chars_format::general);
+      if (result.ec == std::errc{} &&
+          result.ptr == number.data() + number.size() &&
+          std::isfinite(parsed) &&
+          !(parsed == 0.0 && has_nonzero_significand(number))) {
+        value = parsed;
+        return true;
+      }
+    }
+  }
+
+  auto token = std::string(token_view);
   for (char& character : token) {
     if (character == 'D' || character == 'd') {
       character = 'E';
     }
   }
-  const auto decimal = token.find('.');
-  const auto exponent = token.find_first_of("Ee");
-  if (decimal != std::string::npos && exponent == std::string::npos) {
-    const auto sign = token.find_first_of("+-", decimal + 1);
+  const auto normalized_decimal = token.find('.');
+  const auto normalized_exponent = token.find_first_of("Ee");
+  if (normalized_decimal != std::string::npos &&
+      normalized_exponent == std::string::npos) {
+    const auto sign = token.find_first_of("+-", normalized_decimal + 1);
     if (sign != std::string::npos) {
       token.insert(sign, "E");
     }
@@ -455,6 +498,45 @@ std::vector<double> NumericCursor::real_array(std::size_t count,
                                               const std::string& field) {
   std::vector<double> result;
   result.reserve(count);
+
+  // Canonical EFIT arrays use five contiguous E16.9 values per line. Parsing
+  // those records in place avoids one temporary string and one locale stream
+  // per value. The strict shape check keeps unusual whitespace-separated or
+  // producer-specific records on the compatibility path below.
+  if (count != 0) {
+    auto position = position_;
+    result.resize(count);
+    bool fixed_width = true;
+    for (std::size_t index = 0; index < count && fixed_width; ++index) {
+      if (position + 16 > input_.size()) {
+        fixed_width = false;
+        break;
+      }
+      const auto token = std::string_view(input_.data() + position, 16);
+      if (!parse_fortran_real(token, result[index])) {
+        fixed_width = false;
+        break;
+      }
+      position += 16;
+      const bool end_of_record = ((index + 1) % 5 == 0) || index + 1 == count;
+      if (end_of_record) {
+        if (position < input_.size() && input_[position] == '\r') {
+          ++position;
+        }
+        if (position >= input_.size() || input_[position] != '\n') {
+          fixed_width = false;
+          break;
+        }
+        ++position;
+      }
+    }
+    if (fixed_width) {
+      position_ = position;
+      return result;
+    }
+    result.clear();
+  }
+
   for (std::size_t index = 0; index < count; ++index) {
     result.push_back(next_real(field + "[" + std::to_string(index) + "]"));
   }
