@@ -544,9 +544,10 @@ class GFile(_PathFileMapping):
             >>> g.to_cocos(11)
 
     Creating a new G-file:
-        GFile.create(nw, nh) creates a pathless object. NW and NH are set by the
-        factory; all other required fields initially appear as None. Fill all
-        names returned by missing_fields() before saving. A minimal 3 by 2 file:
+        GFile.create(nw, nh) creates a pathless object. NW and NH remain required
+        standard fields, but the factory fills them from ``nw`` and ``nh``; all
+        other required fields initially appear as None. Fill all names returned
+        by missing_fields() before saving. A minimal 3 by 2 file:
 
             >>> import numpy as np
             >>> g = eqmdsk.GFile.create(3, 2)

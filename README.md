@@ -1,8 +1,10 @@
-# eqmdsk
+# Eqmdsk
 
-`eqmdsk` 是一个轻量的 C++17 与 Python 库，用于读取、修改和写入 EFIT G、A、K、S 文件。它保留大型 EFIT 工具集中面向兼容性的文件读写能力，但不包含平衡分析、绘图、惰性加载、数据库、OMAS、MDSplus、SciPy 或其他框架集成，旨实现最小依赖、高速启动的同时，实现对于4种平衡文件的广泛支持和快速读写。对于一个129x129网格且含有附加信息的约1万行Gfile进行读写，其时间约为3.0ms和2.3ms，测试平台为 Ubuntu 24.04，不同平台可能不同。
+`eqmdsk` 是一个轻量易用的 C++17 与 Python 库，用于读取、修改和写入 EFIT G、A、K、S 文件。它保留大型 EFIT 工具集中面向兼容性的纯文件数据读写能力，但不包含进一步操作，如平衡分析、绘图、惰性加载、数据库、OMAS、MDSplus、SciPy 或其他框架集成。`eqmdsk` 旨在保留最小依赖、高速启动的同时，实现对4种平衡文件的广泛支持和快速读写。对于一个129x129网格且含有附加信息的约1万行Gfile进行读写，其时间约为3.0ms和2.3ms，测试平台为 Ubuntu 24.04，不同平台可能不同。
 
 ## Python 快速开始
+
+### 文件读写
 
 ```python
 import eqmdsk
@@ -31,34 +33,76 @@ print(kfile.keys())
 print(kfile["IN1"]["XLIM"])
 ```
 
-G-file 没有足够的元数据来区分全部 COCOS 约定，因此检测通常会返回多个候选。可以
-从候选中选择一个来源，也可以在自动检测不可靠时显式给出来源进行强制转换：
+### Cocos 转换
+
+G-file 没有足够的元数据来区分全部 COCOS 约定，因此检测通常会返回多个候选。可以使用 select_cocos 确定候选，并使用 to_cocos 进行转换。当显式指定`from_cocos`时，to_cocos 也可以进行强制转换：
 
 ```python
 print(gfile.cocos.candidates)
-converted = gfile.to_cocos(to_cocos=11, from_cocos=5, inplace=False)
+gfile.select_cocos(5)  # 如果不在 candidates 中，会抛出错误。
+# 只会改变 gfile.selected，不会修改其它数据，用于 cocos 不确定时手动分配 cocos
+print(gfile.selected)  # 查看当前的 cocos
+gfile.to_cocos(to_cocos=11)  # 将当前的 cocos 转换到目标 cocos
 
-gfile.select_cocos(5)  # 只选择来源，不改变 candidates 或文件字段
-gfile.select_cocos(6)  # 可以在当前 candidates 中重新选择
-gfile.to_cocos(11, from_cocos=6)
+converted = gfile.to_cocos(to_cocos=11, from_cocos=5, inplace=False)
+# 也可以输入 from_cocos 进行强制转换。关闭 inplace 可以维持旧 gfile 不变，返回一个新的转换后的 gfile
+```
+更多详细信息可在[GFile文档](https://github.com/hurd-git/eqmdsk/blob/main/docs/gfile.md)和[Python-API](https://github.com/hurd-git/eqmdsk/blob/main/docs/python-api.md)中查阅。
+
+### 从零创建文件
+
+需要从零构造标准文件时，使用 `GFile.create()`、`AFile.create()`、`KFile.create()` 或 `SFile.create()`；字段填写顺序和最小可写示例见对应的 G/A/K/S 文件指南。
+
+以 Gfile 为例，可以使用类方法`GFile.create(nw, nh)`创建一个空的 Gfile 文件，通过这种方式创建的对象没有路径，在保存时需要显示指定路径。保存的必要条件是必填字段都已填写，并且尺寸是合法的。下面的例子创建一个最小的 `3 x 2` 网格 G-file：
+
+```python
+import numpy as np
+
+g = eqmdsk.GFile.create(3, 2)
+g["CASE"] = "minimal"
+for name in ("RDIM", "ZDIM", "RCENTR", "RLEFT", "ZMID", "RMAXIS", "ZMAXIS",
+             "SIMAG", "SIBRY", "BCENTR", "CURRENT"):
+    g[name] = 1.0
+for name in ("FPOL", "PRES", "FFPRIM", "PPRIME", "QPSI"):
+    g[name] = np.zeros(3)
+g["PSIRZ"] = np.zeros((2, 3))
+g["NBBBS"] = g["LIMITR"] = 0
+for name in ("RBBBS", "ZBBBS", "RLIM", "ZLIM"):
+    g[name] = np.empty(0)
+
+g.save("created.g")
 ```
 
-`select_cocos(source)` 只在 `source` 位于当前 `cocos.candidates` 时成功，并且只修改
-`cocos.selected`。`to_cocos()` 省略 `from_cocos` 时使用当前 `cocos.selected`；如果
-没有 selected，会抛出 `CocosError`。要绕过不可靠的自动检测，使用显式的
-`from_cocos`；它不要求出现在当前 candidates 中，但必须是受支持的 COCOS 编号。参数名
-使用 `from_cocos` 是因为 `from` 是 Python 保留关键字。
+保存前可以用 `g.missing_fields()` 检查是否还有未填写的必填字段。
 
-## 数组所有权
+## 读写性能
 
-数值数组是指向 C++ 所有 Eigen 存储的可写 NumPy view，不存在隐藏转换或复制；
-view 会保持对应文件对象或 K-file block 对象的生命周期。整数组赋值会替换底层数组，
-长度和形状约束在 `save()` 时统一检查。C++ 侧调整容器尺寸时遵循普通 C++ 引用失效规则，
-resize 后应重新获取 NumPy view。
+CI 在 Ubuntu、macOS arm64 和 Windows 上使用相同的完整文件基准测试，分别测量构造时的
+解析、`save()` 写入和再次构造时的重新解析。测试使用 Python 3.14，G-file 为确定性的
+172 x 172 合成网格（约 494 KB），S-file 约 700 KB；每个平台先预热 5 次，再测量 15 次，
+表中为中位数，单位为毫秒。
 
-标准字段类型严格区分整数、实数、字符串和数组类型。实数字段可以接收 Python `int`
-并在 C++ 中规范化为 `double`；整数字段不接受浮点数。目标为实数数组时，整数 NumPy
-数组可以安全转换为 `float64`，但 `float32`、字符串数组等不匹配的数组类型会被拒绝。
+| 平台 | 文件 | 解析 | 写入 | 重新解析 |
+| --- | --- | ---: | ---: | ---: |
+| Ubuntu | G | 2.170 | 1.984 | 1.976 |
+| Ubuntu | A | 0.174 | 0.095 | 0.177 |
+| Ubuntu | K | 0.631 | 2.022 | 0.804 |
+| Ubuntu | S | 3.820 | 8.244 | 3.388 |
+| macOS arm64 | G | 3.973 | 2.513 | 3.959 |
+| macOS arm64 | A | 0.209 | 0.157 | 0.279 |
+| macOS arm64 | K | 0.999 | 1.845 | 3.423 |
+| macOS arm64 | S | 4.534 | 14.799 | 4.689 |
+| Windows | G | 9.844 | 3.087 | 8.023 |
+| Windows | A | 0.416 | 0.266 | 0.381 |
+| Windows | K | 2.071 | 4.859 | 2.743 |
+| Windows | S | 13.538 | 34.390 | 13.563 |
+
+结果表明，常用 G-file 的解析和写入在所有平台都保持毫秒级；macOS arm64 的 G-file
+解析约为 Ubuntu 的 1.8 倍，Windows 的解析较慢，但仍未达到影响整文件读写工作流的数量级。
+A-file、K-file 的文件规模较小，时间容易受到 runner 调度和临时文件系统影响。不同机器、
+编译器、Python 版本和文件系统会产生正常波动，因此这些数值用于跨平台回归观察，不作为
+固定硬件性能承诺。完整 JSON 报告可在对应的 [CI 运行](https://github.com/hurd-git/eqmdsk/actions/runs/32627280722)
+的 `performance-*` artifacts 中下载；本地可运行 `benchmarks/benchmark_io.py` 重复测试。
 
 ```python
 view = gfile["PSIRZ"]
@@ -80,9 +124,6 @@ assert view.flags.c_contiguous and view.flags.writeable
 以及 [G-file](docs/gfile.md)、[A-file](docs/afile.md)、[K-file](docs/kfile.md)、
 [S-file](docs/sfile.md) 独立指南。[兼容性契约](docs/compatibility.md)定义了精简
 schema 与稳定性边界。
-
-需要从零构造标准文件时，使用 `GFile.create()`、`AFile.create()`、`KFile.create()`
-或 `SFile.create()`；字段填写顺序和最小可写示例见对应的 G/A/K/S 文件指南。
 
 ## C++ 使用
 

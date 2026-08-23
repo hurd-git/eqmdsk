@@ -21,8 +21,8 @@ eqmdsk 只负责完整读取、规范写回和字段语义保持，不计算平�
 
 ## 字段表
 
-`NW`、`NH` 由文件头提供，创建时由 `GFile.create(nw, nh)` 提供。其余必填字段必须
-在保存前填写；边界数组长度由 `NBBBS` 和 `LIMITR` 决定。
+`NW`、`NH` 是 G-file 的必填标准字段：读取已有文件时由文件头提供，创建新对象时由
+`GFile.create(nw, nh)` 的参数直接设置。其余必填字段必须在保存前填写。关于尺寸检查：最外闭合磁面数组长度由 `NBBBS` 决定，限制器数组的长度由 `LIMITR` 决定，二维RZ网格量的尺寸由 NW 和 NH 决定，尺寸不匹配将无法保存。
 
 | 类别 | 字段 |
 | --- | --- |
@@ -35,8 +35,7 @@ eqmdsk 只负责完整读取、规范写回和字段语义保持，不计算平�
 | 非法 | 不在以上列表中的 G-file 顶层字段，以及内部 header、raw、计数和布局对象 |
 
 `AuxNamelist` 是 G-file 持有的一个实际 `Namelist` 实例，不是 G-file 数值字段，也
-不是额外的包装类。它包含动态的 `NamelistBlock`，其 block 名不限制为 `OUT1`、`BASIS`、
-`CHIOUT`。Python 侧 `type(g["AuxNamelist"]) is eqmdsk.Namelist`；C++ 侧
+不是额外的包装类。它包含动态的 `NamelistBlock`，其 block 名可以为 `OUT1`、`BASIS`、`CHIOUT`等。Python 侧 `type(g["AuxNamelist"]) is eqmdsk.Namelist`；C++ 侧
 `g.aux_namelist()` 返回 `eqmdsk::Namelist*`。
 
 G-file 没有独立的可编辑 raw footer；第一行头部的语义由 `CASE`、`NW`、`NH` 和内部
@@ -140,8 +139,9 @@ g["ZLIM"] = np.empty(0)
 g.save("created.g")
 ```
 
-创建对象的标准字段初始值在 Python 侧显示为 `None`，`NW`、`NH` 除外；保存前可用
-`missing_fields()` 和 `missing_optional_fields()` 检查状态。writer 会校验字段类型、
+创建对象的标准字段初始值在 Python 侧显示为 `None`；其中 `NW`、`NH` 已由
+`GFile.create(nw, nh)` 的参数填写。保存前可用 `missing_fields()` 和
+`missing_optional_fields()` 检查状态。writer 会校验字段类型、
 数组形状、计数和有限值，并规范生成固定宽度数值记录，不保证原文排版保真。
 
 G-file 的整数控制字段（如 `NW`、`NH`、`NBBBS`、`LIMITR`）不接受浮点赋值；实数标量
