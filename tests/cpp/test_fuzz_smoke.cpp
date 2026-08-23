@@ -108,10 +108,10 @@ void exercise(const std::filesystem::path& directory, const std::string& name,
   for (const auto& payload : mutations(seed)) {
     write_bytes(input, payload);
     try {
-      const File parsed(input);
+      const File parsed(input.string());
       try {
-        parsed.save(output);
-        const File reparsed(output);
+        parsed.save(output.string());
+        const File reparsed(output.string());
         static_cast<void>(reparsed);
       } catch (const eqmdsk::Error&) {
       }
