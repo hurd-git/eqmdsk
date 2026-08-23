@@ -4,6 +4,14 @@
 
 ## Python 快速开始
 
+### 快速安装
+
+```python
+pip install eqmdsk
+```
+
+直接使用 pip 安装即可，也可以从 release 中下载 whl 文件手动安装。
+
 ### 文件读写
 
 ```python
