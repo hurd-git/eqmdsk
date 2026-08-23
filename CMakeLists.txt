@@ -4,6 +4,7 @@ project(eqmdsk VERSION 0.9.0 LANGUAGES CXX)
 
 include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)
+include(CheckCXXSourceCompiles)
 
 if(SKBUILD)
   set(_eqmdsk_python_default ON)
@@ -29,6 +30,30 @@ option(EQMDSK_FETCH_DEPENDENCIES
 unset(_eqmdsk_fetch_default)
 
 set(CMAKE_CXX_EXTENSIONS OFF)
+
+set(_eqmdsk_saved_required_flags "${CMAKE_REQUIRED_FLAGS}")
+if(MSVC)
+  set(CMAKE_REQUIRED_FLAGS "${CMAKE_REQUIRED_FLAGS} /std:c++17")
+else()
+  set(CMAKE_REQUIRED_FLAGS "${CMAKE_REQUIRED_FLAGS} -std=c++17")
+endif()
+check_cxx_source_compiles(
+  "#include <charconv>
+   #include <system_error>
+   int main() {
+     double value = 0.0;
+     char buffer[32]{};
+     const auto input = std::from_chars(
+         \"1.25\", \"1.25\" + 4, value, std::chars_format::general);
+     const auto output = std::to_chars(
+         buffer, buffer + sizeof(buffer), value,
+         std::chars_format::scientific, 8);
+     return input.ec != std::errc{} || output.ec != std::errc{};
+   }"
+  EQMDSK_HAS_FLOAT_CHARCONV
+)
+set(CMAKE_REQUIRED_FLAGS "${_eqmdsk_saved_required_flags}")
+unset(_eqmdsk_saved_required_flags)
 
 find_package(Eigen3 QUIET NO_MODULE)
 if(Eigen3_FOUND AND
@@ -137,6 +162,9 @@ add_library(eqmdsk::eqmdsk ALIAS eqmdsk)
 
 target_compile_features(eqmdsk PUBLIC cxx_std_17)
 target_link_libraries(eqmdsk PUBLIC Eigen3::Eigen)
+target_compile_definitions(eqmdsk PRIVATE
+  EQMDSK_HAS_FLOAT_CHARCONV=$<BOOL:${EQMDSK_HAS_FLOAT_CHARCONV}>
+)
 target_include_directories(eqmdsk
   PUBLIC
     "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
@@ -149,7 +177,7 @@ set_target_properties(eqmdsk PROPERTIES
 )
 
 if(MSVC)
-  target_compile_options(eqmdsk PRIVATE /W4 /permissive- /bigobj)
+  target_compile_options(eqmdsk PRIVATE /W4 /permissive-)
 else()
   target_compile_options(eqmdsk PRIVATE -Wall -Wextra -Wpedantic)
 endif()

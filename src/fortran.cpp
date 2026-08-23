@@ -231,9 +231,10 @@ bool parse_fortran_real(std::string_view text, double& value) {
   }
   auto token_view = std::string_view(&*first,
                                      static_cast<std::size_t>(last - first));
-  // The common E/e form can be parsed without allocating or constructing a
-  // locale-aware stream. Fortran D exponents and omitted exponent markers use
-  // the compatibility path below.
+  // Fortran D exponents and omitted exponent markers use the compatibility
+  // path below. Standard floating-point charconv, when available, handles the
+  // ordinary E/e form without allocating or constructing a stream.
+#if EQMDSK_HAS_FLOAT_CHARCONV
   const auto decimal = token_view.find('.');
   const auto exponent = token_view.find_first_of("Ee");
   const auto has_d_exponent = token_view.find_first_of("Dd") !=
@@ -260,7 +261,7 @@ bool parse_fortran_real(std::string_view text, double& value) {
       }
     }
   }
-
+#endif
   auto token = std::string(token_view);
   for (char& character : token) {
     if (character == 'D' || character == 'd') {
@@ -303,6 +304,7 @@ void append_e16_9(std::string& output, double value) {
     throw ValidationError("cannot write a non-finite floating-point value");
   }
 
+#if EQMDSK_HAS_FLOAT_CHARCONV
   char normalized[32]{};
   const auto converted = std::to_chars(
       normalized, normalized + sizeof(normalized), value,
@@ -311,7 +313,6 @@ void append_e16_9(std::string& output, double value) {
       converted.ptr >= normalized + sizeof(normalized)) {
     throw ValidationError("unable to format floating-point value as E16.9");
   }
-
   const auto* begin = normalized;
   const auto* end = converted.ptr;
   const bool negative = *begin == '-';
@@ -324,6 +325,27 @@ void append_e16_9(std::string& output, double value) {
       decimal == begin || exponent_marker + 1 >= end) {
     throw ValidationError("unable to format floating-point exponent as E16.9");
   }
+#else
+  std::ostringstream normalized_stream;
+  normalized_stream.imbue(std::locale::classic());
+  normalized_stream << std::uppercase << std::scientific
+                    << std::setprecision(8) << value;
+  const auto normalized = normalized_stream.str();
+  const auto* begin = normalized.data();
+  const auto* end = begin + normalized.size();
+  const auto* decimal = std::find(begin, end, '.');
+  const auto* exponent_marker = std::find(begin, end, 'E');
+  if (!normalized_stream || decimal == end || exponent_marker == end ||
+      decimal >= exponent_marker || decimal == begin ||
+      exponent_marker + 1 >= end) {
+    throw ValidationError("unable to format floating-point value as E16.9");
+  }
+
+  const bool negative = std::signbit(value);
+  if (negative) {
+    ++begin;
+  }
+#endif
 
   int exponent = 0;
   const auto* exponent_digit = exponent_marker + 1;
