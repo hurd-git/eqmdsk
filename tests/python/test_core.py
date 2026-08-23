@@ -42,8 +42,9 @@ def test_file_path_properties_are_read_only(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     relative = eqmdsk.SFile("source.s")
     assert relative.filename == "source.s"
-    assert relative.path == "./source.s"
-    assert relative.abspath == str(source.resolve())
+    assert Path(relative.path) == Path("source.s")
+    assert not Path(relative.path).is_absolute()
+    assert Path(relative.abspath) == source.resolve()
     with pytest.raises(AttributeError):
         relative.filename = "renamed.s"
     with pytest.raises(AttributeError):
