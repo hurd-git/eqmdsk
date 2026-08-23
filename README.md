@@ -1,12 +1,6 @@
 # eqmdsk
 
-`eqmdsk` 是一个轻量的 C++17 与 Python 库，用于读取、修改和写入 EFIT G、A、K、
-S 文件。它保留大型 EFIT 工具集中面向兼容性的文件读写能力，但不包含平衡分析、绘图、
-惰性加载、数据库、OMAS、MDSplus、SciPy 或其他框架集成。
-
-`0.9.0` 版本的 C++ 与 Python 公共接口共享同一套 C++ 实现。C++ 中
-`Namelist` 是无路径的实际对象；`KFile` 继承它并增加文件能力，而 G-file 的
-`AuxNamelist` 直接是 GFile 持有的 `Namelist` 实例。
+`eqmdsk` 是一个轻量的 C++17 与 Python 库，用于读取、修改和写入 EFIT G、A、K、S 文件。它保留大型 EFIT 工具集中面向兼容性的文件读写能力，但不包含平衡分析、绘图、惰性加载、数据库、OMAS、MDSplus、SciPy 或其他框架集成，旨实现最小依赖、高速启动的同时，实现对于4种平衡文件的广泛支持和快速读写。对于一个129x129网格且含有附加信息的约1万行Gfile进行读写，其时间约为3.0ms和2.3ms，测试平台为 Ubuntu 24.04，不同平台可能不同。
 
 ## Python 快速开始
 
