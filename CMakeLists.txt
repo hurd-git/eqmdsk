@@ -149,7 +149,7 @@ set_target_properties(eqmdsk PROPERTIES
 )
 
 if(MSVC)
-  target_compile_options(eqmdsk PRIVATE /W4 /permissive-)
+  target_compile_options(eqmdsk PRIVATE /W4 /permissive- /bigobj)
 else()
   target_compile_options(eqmdsk PRIVATE -Wall -Wextra -Wpedantic)
 endif()
