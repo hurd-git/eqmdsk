@@ -281,7 +281,7 @@ GFile::GFile(std::string path, bool read_file)
       aux_namelist_(std::make_unique<Namelist>(Namelist::create())) {
   if (read_file) {
     parse(detail::read_binary_file(path_));
-    detect_cocos();
+    cocos_ = detect_cocos();
   }
 }
 
@@ -1061,16 +1061,15 @@ void GFile::save(const std::string& path) const {
   detail::write_binary_file(path, output);
 }
 
-void GFile::detect_cocos() {
+CocosResult GFile::detect_cocos() const {
   const int current_sign = strict_sign(require<double>(fields_, "CURRENT"));
   const int field_sign = strict_sign(require<double>(fields_, "BCENTR"));
   const int flux_sign = strict_sign(require<double>(fields_, "SIBRY") -
                                     require<double>(fields_, "SIMAG"));
   if (current_sign == 0 || field_sign == 0 || flux_sign == 0) {
-    cocos_ = CocosResult({},
-                         "COCOS detection requires finite, non-zero CURRENT, "
-                         "BCENTR, and SIBRY-SIMAG");
-    return;
+    return CocosResult(
+        {}, "COCOS detection requires finite, non-zero CURRENT, BCENTR, "
+            "and SIBRY-SIMAG");
   }
 
   const auto& qpsi = require<DoubleVector>(fields_, "QPSI");
@@ -1087,9 +1086,8 @@ void GFile::detect_cocos() {
     }
   }
   if (nonfinite || (positive && negative)) {
-    cocos_ = CocosResult({}, nonfinite ? "QPSI contains non-finite values"
-                                       : "QPSI contains mixed signs");
-    return;
+    return CocosResult({}, nonfinite ? "QPSI contains non-finite values"
+                                     : "QPSI contains mixed signs");
   }
   const int q_sign = positive ? 1 : (negative ? -1 : 0);
   const int sigma_bp = current_sign * flux_sign;
@@ -1101,7 +1099,7 @@ void GFile::detect_cocos() {
       candidates.push_back(item.number);
     }
   }
-  cocos_ = CocosResult(
+  return CocosResult(
       std::move(candidates),
       q_sign == 0
           ? "QPSI has no non-zero sign; toroidal-angle direction and flux "
@@ -1111,26 +1109,34 @@ void GFile::detect_cocos() {
 }
 
 void GFile::select_cocos(int source) {
-  static_cast<void>(convention(source));
   const auto& candidates = cocos_.candidates();
   if (std::find(candidates.begin(), candidates.end(), source) ==
       candidates.end()) {
     throw CocosError("selected source COCOS is not a detected candidate",
                      cocos_);
   }
-  cocos_ = CocosResult(source, {source}, "source COCOS explicitly selected");
+  if (cocos_.selected_optional().has_value() &&
+      *cocos_.selected_optional() == source) {
+    return;
+  }
+  cocos_.set_selected(source);
 }
 
-GFile& GFile::to_cocos(int target, std::optional<int> from_cocos) {
-  const auto& destination = convention(target);
-  if (!from_cocos.has_value() && !cocos_.is_unique()) {
-    throw CocosError("source COCOS is ambiguous or unknown", cocos_);
+GFile& GFile::to_cocos(int to_cocos, std::optional<int> from_cocos) {
+  const auto& destination = convention(to_cocos);
+  int source_number = 0;
+  if (from_cocos.has_value()) {
+    source_number = *from_cocos;
+  } else if (cocos_.selected_optional().has_value()) {
+    source_number = *cocos_.selected_optional();
+  } else {
+    throw CocosError("source COCOS is not selected", cocos_);
   }
-  const int source_number =
-      from_cocos.has_value() ? *from_cocos : cocos_.selected();
   const auto& source = convention(source_number);
   if (source.number == destination.number) {
-    cocos_ = CocosResult(target, {target}, "source and target COCOS are equal");
+    auto detected = detect_cocos();
+    detected.set_selected(to_cocos);
+    cocos_ = std::move(detected);
     return *this;
   }
 
@@ -1163,14 +1169,16 @@ GFile& GFile::to_cocos(int target, std::optional<int> from_cocos) {
   multiply_vector(fields_, "PPRIME", bp * phi / scale);
   multiply_vector(fields_, "FFPRIM", bp * phi / scale);
   multiply_vector(fields_, "QPSI", rho);
-  cocos_ = CocosResult(target, {target}, "converted");
+  auto detected = detect_cocos();
+  detected.set_selected(to_cocos);
+  cocos_ = std::move(detected);
   return *this;
 }
 
-GFile GFile::converted_to_cocos(int target,
+GFile GFile::converted_to_cocos(int to_cocos,
                                 std::optional<int> from_cocos) const {
   GFile result(*this);
-  result.to_cocos(target, from_cocos);
+  result.to_cocos(to_cocos, from_cocos);
   return result;
 }
 

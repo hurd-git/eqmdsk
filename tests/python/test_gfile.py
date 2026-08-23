@@ -253,20 +253,28 @@ def test_cocos_selection_copy_and_inplace(tmp_path):
     source = tmp_path / "g"
     _synthetic_gfile(source, tail=b"")
     gfile = eqmdsk.GFile(source)
+    assert "cocos" in dir(gfile)
+    assert isinstance(gfile.cocos, eqmdsk.CocosResult)
     assert gfile.cocos.candidates == [5, 6, 15, 16]
+    detected = gfile._detect_cocos()
+    assert detected is not gfile.cocos
+    assert detected.selected is None
+    assert gfile.cocos.selected is None
 
-    with pytest.raises(eqmdsk.CocosError) as ambiguous:
+    with pytest.raises(eqmdsk.CocosError) as unselected:
         gfile.to_cocos(11)
-    assert ambiguous.value.result.candidates == [5, 6, 15, 16]
+    assert unselected.value.result.candidates == [5, 6, 15, 16]
+    assert unselected.value.result.selected is None
 
     converted = gfile.to_cocos(to_cocos=15, from_cocos=5, inplace=False)
     assert converted is not gfile
     assert converted.cocos.selected == 15
+    assert converted.cocos.candidates == [5, 6, 15, 16]
     assert gfile.cocos.candidates == [5, 6, 15, 16]
     np.testing.assert_allclose(converted["PSIRZ"], gfile["PSIRZ"] * (2 * np.pi))
     np.testing.assert_allclose(converted["PPRIME"], gfile["PPRIME"] / (2 * np.pi))
 
-    unchanged = gfile.to_cocos(5, 5, False)
+    unchanged = gfile.to_cocos(5, from_cocos=5, inplace=False)
     assert unchanged.cocos.selected == 5
     np.testing.assert_array_equal(unchanged["PSIRZ"], gfile["PSIRZ"])
 
@@ -278,14 +286,24 @@ def test_cocos_selection_copy_and_inplace(tmp_path):
     assert invalid_source.value.result.candidates == [5, 6, 15, 16]
 
     gfile.select_cocos(5)
-    converted = gfile.to_cocos(15, inplace=False)
-    assert converted is not gfile
+    assert gfile.cocos.candidates == [5, 6, 15, 16]
     assert gfile.cocos.selected == 5
+    assert gfile.cocos.is_ambiguous()
+    gfile.select_cocos(15)
+    assert gfile.cocos.candidates == [5, 6, 15, 16]
+    assert gfile.cocos.selected == 15
+    gfile.select_cocos(15)
+    selected_source = gfile.to_cocos(15, inplace=False)
+    assert selected_source.cocos.selected == 15
+    np.testing.assert_array_equal(selected_source["PSIRZ"], gfile["PSIRZ"])
+    converted = gfile.to_cocos(15, from_cocos=5, inplace=False)
+    assert converted is not gfile
+    assert gfile.cocos.selected == 15
     assert converted.cocos.selected == 15
     np.testing.assert_allclose(converted["PSIRZ"], gfile["PSIRZ"] * (2 * np.pi))
     np.testing.assert_allclose(converted["PPRIME"], gfile["PPRIME"] / (2 * np.pi))
 
-    returned = gfile.to_cocos(15)
+    returned = gfile.to_cocos(15, from_cocos=15)
     assert returned is gfile
     assert gfile.cocos.selected == 15
 
@@ -301,7 +319,7 @@ def test_cocos_known_5_to_12_factors(tmp_path):
     }
     baseline.update({name: gfile[name] for name in ("CURRENT", "BCENTR", "SIMAG", "SIBRY")})
 
-    converted = gfile.to_cocos(12, inplace=False)
+    converted = gfile.to_cocos(12, from_cocos=5, inplace=False)
     two_pi = 2.0 * np.pi
     assert converted["CURRENT"] == pytest.approx(-baseline["CURRENT"])
     assert converted["BCENTR"] == pytest.approx(-baseline["BCENTR"])
@@ -393,8 +411,8 @@ def test_cocos_all_conventions_round_trip(tmp_path):
         )
 
         for target in targets:
-            converted = base.to_cocos(target, inplace=False)
-            restored = converted.to_cocos(source, inplace=False)
+            converted = base.to_cocos(target, from_cocos=source, inplace=False)
+            restored = converted.to_cocos(source, from_cocos=target, inplace=False)
             assert restored.cocos.selected == source
             for name, expected in baseline.items():
                 np.testing.assert_allclose(restored[name], expected, rtol=2e-15, atol=0)

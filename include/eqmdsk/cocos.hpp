@@ -8,6 +8,8 @@
 
 namespace eqmdsk {
 
+class GFile;
+
 class CocosResult {
  public:
   CocosResult() = default;
@@ -24,6 +26,9 @@ class CocosResult {
   int selected() const;
 
  private:
+  friend class GFile;
+  void set_selected(int value) noexcept { selected_ = value; }
+
   std::optional<int> selected_;
   std::vector<int> candidates_;
   std::string diagnostic_;

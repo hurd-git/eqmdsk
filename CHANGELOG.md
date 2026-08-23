@@ -8,8 +8,9 @@ Semantic Versioning, with the documented pre-1.0 compatibility allowance.
 - Continue compatibility validation with additional licensed real-world files
   and platform CI runs.
 - Add per-format G/A/K/S usage guides and a shared Python API guide.
-- Ship PEP 561 type information with field-specific G/A/S lookup overloads and
-  nested K-file NamelistBlock signatures.
+- Ship PEP 561 type declarations with field-specific G/A/S lookup overloads
+  and nested K-file NamelistBlock signatures. Keep detailed API documentation
+  only in the runtime `__init__.py`, not in the declaration-only `.pyi` file.
 - Fix cross-platform CI coverage: wheel archive path checks, Windows test stream
   lifetime, and portable subnormal floating-point parsing.
 - Provide the project README in Chinese while retaining the complete Python,
@@ -18,8 +19,9 @@ Semantic Versioning, with the documented pre-1.0 compatibility allowance.
   the surrogate path before the library can receive it.
 - Prepare one tag's sdist and multi-platform wheels for a future synchronized
   PyPI publication and GitHub Release.
-- Add `to_cocos` and `from_cocos` parameters to `GFile.to_cocos()`; when
-  `from_cocos` is omitted, use the file's unique or explicitly selected result.
+- Add explicit COCOS source selection and conversion state handling. When
+  `from_cocos` is omitted, `GFile.to_cocos()` uses only the currently selected
+  source; it no longer guesses from the candidate list.
 - Set platform-appropriate macOS deployment targets for filesystem-enabled
   Intel and arm64 wheels.
 - Simplify the public model to standard semantic mappings: G/A/S expose flat

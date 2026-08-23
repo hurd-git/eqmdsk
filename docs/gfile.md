@@ -71,8 +71,42 @@ g.save("g.modified")
 ```python
 converted = g.to_cocos(11, from_cocos=5, inplace=False)
 g.select_cocos(5)
-g.to_cocos(11)
+g.select_cocos(6)
+g.to_cocos(11, from_cocos=6)
 ```
+
+`g.cocos` 是一个只读的 `CocosResult` 对象，调试器可以直接展开查看
+`candidates`、`selected`、`diagnostic` 以及 `is_unique()` 等状态。文件读取完成后，
+eqmdsk 会根据文件中的符号信息检测可能的来源约定；当信息不足时可能得到多个候选值。
+内部 `g._detect_cocos()` 会返回当前字段对应的全新检测结果，不改变 `g.cocos`。检测
+结果的组装规则是：候选为空或多于一个时 `selected` 为 `None`，候选恰好一个时
+`selected` 自动取该唯一候选。
+`is_unique()`、`is_ambiguous()` 和 `has_match()` 只依据 candidates 数组判断；即使
+在多个候选中显式选择了一个，候选集合仍然属于 ambiguous 状态。
+
+`g.select_cocos(source)` 只在 `source` 位于当前 candidates 时成功，不重新检测，也不
+执行转换。调用成功后只更新 selected：
+
+- `g.cocos.candidates` 保持不变；
+- `g.cocos.selected` 变为 `source`；
+- `g.cocos.diagnostic` 保持不变；
+- `CURRENT`、`BCENTR`、`PSIRZ` 等文件字段保持不变。
+
+可以在多个候选之间反复调用 `select_cocos()`；如果选择值与当前 selected 相同，则
+完全不做任何操作。不在当前 candidates 中的值会抛出 `CocosError`。
+
+如果 `source` 不在自动检测出的候选集合中，`select_cocos()` 会抛出 `CocosError`，并
+保留原检测结果供诊断。实际转换使用：
+
+```python
+g.to_cocos(to_cocos=11, from_cocos=5, inplace=True)
+```
+
+省略 `from_cocos` 时使用当前 `g.cocos.selected`；如果 selected 为空则报错。显式传入
+的 `from_cocos` 可以不在 candidates 中，这是自动识别不可靠时的强制转换入口，但必须
+是支持的 COCOS 编号。转换完成后，程序先对转换后的字段重新检测 candidates 和
+diagnostic，再把 selected 直接设为 `to_cocos`；selected 不要求属于新的 candidates。
+COCOS 选择信息不写入 G-file 文件内容，重新读取文件时会重新检测。
 
 `AuxNamelist` 不能单独保存，必须修改后调用所属 G-file 的 `save()`。这是保存归属的
 限制，不改变它本身是 `Namelist` 实例这一事实。无论原始文件尾部是否有 namelist，
@@ -121,41 +155,42 @@ G-file 的整数控制字段（如 `NW`、`NH`、`NBBBS`、`LIMITR`）不接受�
 | `CASE` | 平衡或放电的标识文本 |
 | `NW` | R 方向网格点数 |
 | `NH` | Z 方向网格点数 |
-| `RDIM` | R 方向网格范围 |
-| `ZDIM` | Z 方向网格范围 |
-| `RCENTR` | 参考大半径中心 |
-| `RLEFT` | 网格左边界 R 坐标 |
-| `ZMID` | 网格中平面 Z 坐标 |
-| `RMAXIS` | 磁轴 R 坐标 |
-| `ZMAXIS` | 磁轴 Z 坐标 |
-| `SIMAG` | 磁轴处极向磁通 |
-| `SIBRY` | 等离子体边界处极向磁通 |
-| `BCENTR` | 参考位置环向磁场 |
-| `CURRENT` | 等离子体总电流 |
-| `FPOL` | 各 R 网格点的环向磁通函数 |
-| `PRES` | 各 R 网格点的压力剖面 |
-| `FFPRIM` | 环向磁通函数平方对极向磁通的导数 |
-| `PPRIME` | 压力对极向磁通的导数 |
-| `PSIRZ` | R-Z 网格上的极向磁通 |
-| `QPSI` | 安全因子剖面 |
+| `RDIM` | 计算区域在 R 方向的尺寸，单位 m |
+| `ZDIM` | 计算区域在 Z 方向的尺寸，单位 m |
+| `RCENTR` | 真空环向磁场 `BCENTR` 对应的 R 坐标，单位 m |
+| `RLEFT` | 矩形计算区域的最小 R 坐标，单位 m |
+| `ZMID` | 计算区域中心的 Z 坐标，单位 m |
+| `RMAXIS` | 磁轴 R 坐标，单位 m |
+| `ZMAXIS` | 磁轴 Z 坐标，单位 m |
+| `SIMAG` | 磁轴处的极向磁通，单位 Wb/rad |
+| `SIBRY` | 等离子体边界处的极向磁通，单位 Wb/rad |
+| `BCENTR` | `RCENTR` 处的真空环向磁场，单位 T |
+| `CURRENT` | 等离子体电流，单位 A |
+| `FPOL` | 极向电流函数，在磁通网格上的 `F = R·B_t`，单位 m·T |
+| `PRES` | 等离子体压力，在均匀磁通网格上给出，单位 Pa |
+| `FFPRIM` | `F F'(ψ)`，其中 `F = R·B_t`，在均匀磁通网格上给出，单位 `(m·T)^2/(Wb/rad)` |
+| `PPRIME` | `P'(ψ)`，在均匀磁通网格上给出，单位 `Pa/(Wb/rad)` |
+| `PSIRZ` | 矩形 R-Z 网格点上的极向磁通，单位 Wb/rad |
+| `QPSI` | 从磁轴到边界的均匀磁通网格上的 q 值 |
 | `NBBBS` | 等离子体边界点数 |
 | `LIMITR` | 限制器轮廓点数 |
-| `RBBBS`, `ZBBBS` | 等离子体边界点坐标 |
-| `RLIM`, `ZLIM` | 限制器点坐标 |
-| `KVTOR` | 环向旋转相关扩展的控制量 |
-| `RVTOR` | 环向旋转参考半径 |
-| `NMASS` | 质量密度扩展的控制量 |
+| `RBBBS`, `ZBBBS` | 等离子体边界点的 R/Z 坐标，单位 m |
+| `RLIM`, `ZLIM` | 周围限制器轮廓点的 R/Z 坐标，单位 m |
+| `KVTOR` | 环向旋转开关 |
+| `RVTOR` | 环向旋转特征大半径，单位 m |
+| `NMASS` | 质量密度开关 |
 | `PRESSW`, `PWPRIM` | 旋转/扩展压力及其导数 |
 | `DMION` | 离子质量密度相关剖面 |
-| `RHOVN` | 归一化径向坐标 |
-| `KEECUR` | 外部电流扩展的控制量 |
-| `EPOTEN` | 电势剖面 |
+| `RHOVN` | 均匀极向磁通网格上的归一化环向磁通 |
+| `KEECUR` | `EPOTEN` 扩展的控制开关，具体语义依 EFIT 版本而定 |
+| `EPOTEN` | 与 `KEECUR` 配套的扩展剖面数据，具体物理含义依 EFIT 版本而定 |
 | `IPLCOUT` | IPLCOUT 输出模式 |
 | `IPLCOUT_NW`, `IPLCOUT_NH` | IPLCOUT 数据网格尺寸 |
 | `IPLCOUT_ISHOT`, `IPLCOUT_ITIME` | IPLCOUT 对应的放电号和时间索引 |
 | `RGRID`, `ZGRID` | IPLCOUT 网格坐标 |
 | `IPLCOUT_PREFIX` | 无法进一步安全命名的 IPLCOUT 前缀数据 |
-| `PCURRT`, `PCURRZ` | 电流相关的 IPLCOUT 数据 |
+| `PCURRT` | IPLCOUT 的 R-Z 网格环向电流密度数据 |
+| `PCURRZ` | IPLCOUT 模式扩展数据，具体含义依 EFIT 版本而定 |
 | `CJOR`, `R1SURF`, `R2SURF`, `VOLP`, `BPOLSS` | IPLCOUT 模式扩展量 |
 | `UNPARSED_EXTENSION` | 无法安全判断标准含义的数值扩展 |
 | `AuxNamelist` | G-file 尾部附加 namelist 的容器 |

@@ -33,16 +33,16 @@ CocosError::CocosError(std::string message, CocosResult result)
     : Error(std::move(message)), result_(std::move(result)) {}
 
 bool CocosResult::is_unique() const noexcept {
-  return selected_.has_value() && candidates_.size() == 1;
+  return candidates_.size() == 1;
 }
 
 bool CocosResult::is_ambiguous() const noexcept {
-  return !selected_.has_value() && candidates_.size() > 1;
+  return candidates_.size() > 1;
 }
 
 int CocosResult::selected() const {
-  if (!is_unique()) {
-    throw CocosError("COCOS result is not unique");
+  if (!selected_.has_value()) {
+    throw CocosError("COCOS source is not selected");
   }
   return *selected_;
 }

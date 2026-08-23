@@ -56,6 +56,9 @@ int main() {
     rejected_selection = true;
   }
   assert(rejected_selection);
+  const eqmdsk::CocosResult explicitly_selected(1, {1, 11}, "test");
+  assert(explicitly_selected.is_ambiguous());
+  assert(explicitly_selected.selected() == 1);
 
   const auto gfile = eqmdsk::GFile::create(4, 3);
   assert(std::get<std::int64_t>(gfile.at("NW")) == 4);

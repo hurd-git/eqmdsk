@@ -32,18 +32,19 @@ class GFile final : public FieldFile {
   void save(const std::string& path) const override;
 
   const CocosResult& cocos() const noexcept { return cocos_; }
+  CocosResult detect_cocos() const;
   Namelist* aux_namelist() noexcept { return aux_namelist_.get(); }
   const Namelist* aux_namelist() const noexcept { return aux_namelist_.get(); }
   void select_cocos(int source);
-  GFile& to_cocos(int target, std::optional<int> from_cocos = std::nullopt);
+  GFile& to_cocos(int to_cocos,
+                 std::optional<int> from_cocos = std::nullopt);
   GFile converted_to_cocos(
-      int target, std::optional<int> from_cocos = std::nullopt) const;
+      int to_cocos, std::optional<int> from_cocos = std::nullopt) const;
 
  private:
   GFile(std::string path, bool read_file);
   void parse(const std::string& bytes);
   void validate_for_write() const;
-  void detect_cocos();
   void update_derived_grids();
 
   int idum_ = 0;

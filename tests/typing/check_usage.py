@@ -28,11 +28,12 @@ def check_gfile(g: eqmdsk.GFile) -> None:
         to_cocos=11, from_cocos=5, inplace=False
     )
     result: eqmdsk.CocosResult = g.cocos
+    detected: eqmdsk.CocosResult = g._detect_cocos()
     target: str = g.filename
     relative_path: str = g.path
     absolute_path: str = g.abspath
     g_copy: eqmdsk.GFile = g.copy()
-    _ = (case, nw, current, psi, aux, converted, result, target,
+    _ = (case, nw, current, psi, aux, converted, result, detected, target,
          relative_path, absolute_path, g_copy)
 
 

@@ -294,13 +294,16 @@ PYBIND11_MODULE(_core, module) {
       .def(py::init<>())
       .def_property_readonly("candidates", &eqmdsk::CocosResult::candidates)
       .def_property_readonly("diagnostic", &eqmdsk::CocosResult::diagnostic)
-      .def_property_readonly("selected", &eqmdsk::CocosResult::selected)
+      .def_property_readonly("selected",
+                             &eqmdsk::CocosResult::selected_optional)
       .def("is_unique", &eqmdsk::CocosResult::is_unique)
       .def("is_ambiguous", &eqmdsk::CocosResult::is_ambiguous)
       .def("has_match", &eqmdsk::CocosResult::has_match)
       .def("__repr__", [](const eqmdsk::CocosResult& result) {
         return "CocosResult(candidates=" +
                py::repr(py::cast(result.candidates())).cast<std::string>() +
+               ", selected=" +
+               py::repr(py::cast(result.selected_optional())).cast<std::string>() +
                ", diagnostic=" +
                py::repr(py::cast(result.diagnostic())).cast<std::string>() +
                ")";
@@ -444,20 +447,21 @@ PYBIND11_MODULE(_core, module) {
       }), py::arg("path"))
       .def("copy", &eqmdsk::GFile::copy)
       .def("save", &save_file<eqmdsk::GFile>, py::arg("path") = py::none())
+      .def("_detect_cocos", &eqmdsk::GFile::detect_cocos)
       .def_property_readonly("cocos", &eqmdsk::GFile::cocos,
                              py::return_value_policy::reference_internal)
       .def_property_readonly("_aux_namelist", [](eqmdsk::GFile& self) {
         return self.aux_namelist();
       }, py::return_value_policy::reference_internal)
       .def("select_cocos", &eqmdsk::GFile::select_cocos, py::arg("source"))
-      .def("to_cocos", [](eqmdsk::GFile& self, int target,
+      .def("to_cocos", [](eqmdsk::GFile& self, int to_cocos,
                            const std::optional<int>& from_cocos,
                            bool inplace) -> py::object {
         if (inplace) {
-          self.to_cocos(target, from_cocos);
+          self.to_cocos(to_cocos, from_cocos);
           return py::cast(&self, py::return_value_policy::reference);
         }
-        return py::cast(self.converted_to_cocos(target, from_cocos));
+        return py::cast(self.converted_to_cocos(to_cocos, from_cocos));
       }, py::arg("to_cocos"), py::arg("from_cocos") = py::none(),
          py::arg("inplace") = true);
 

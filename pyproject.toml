@@ -60,9 +60,8 @@ addopts = "-ra"
 testpaths = ["tests/python"]
 
 [tool.mypy]
-# Current NumPy releases use Python 3.12 syntax in their own stubs. The eqmdsk
-# stub itself is parsed by the test suite on every supported Python, including
-# 3.9; CI also runs a separately constrained Python 3.9 mypy check.
+# Public documentation lives in __init__.py; __init__.pyi contains only type
+# declarations. CI also runs a separately constrained Python 3.9 mypy check.
 python_version = "3.12"
 strict = true
 files = ["tests/typing/check_usage.py"]

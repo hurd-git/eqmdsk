@@ -85,51 +85,147 @@ created.save("a.copy")
 | 字段 | 含义 |
 | --- | --- |
 | `SHOT` | 放电号 |
-| `TIME` | 平衡对应时间 |
-| `JFLAG`, `LFLAG` | EFIT 状态或计算标志 |
-| `LIMLOC` | 限制器位置标志 |
-| `MCO2V` | 垂直弦线数量 |
-| `MCO2R` | 径向弦线数量 |
-| `QMFLAG` | Q 相关计算标志 |
-| `NLOLD`, `NLNEW` | 旧、新版本或迭代相关计数 |
-| `CHISQ` | 拟合残差或卡方量 |
-| `RCENCM`, `RCNTR`, `ZCNTR` | 参考中心位置量 |
-| `BCENTR` | 参考环向磁场 |
-| `IPMEAS`, `IPMHD` | 电流测量和 MHD 电流量 |
-| `AMINOR` | 小半径 |
-| `ELONG`, `ELONGM` | 拉长率 |
-| `UTRI`, `LTRI` | 上、下三角度相关量 |
-| `VOLUME` | 等离子体体积 |
-| `RCURRT`, `ZCURRT` | 电流中心坐标 |
-| `QSTAR`, `Q95` | 安全因子指标 |
-| `BETAT`, `BETAP`, `BETAPD` | 环向、极向及相关 beta 指标 |
-| `LI` | 内部电感指标 |
-| `GAPIN`, `GAPOUT`, `GAPTOP`, `GAPBOT` | 等离子体与边界/限制器的间隙 |
-| `VERTN`, `SHEAR` | 垂直位置和剪切相关量 |
-| `BPOLAV` | 平均极向磁场 |
-| `S1`, `S2`, `S3` | EFIT 摘要剖面量 |
-| `QOUT`, `SEPIN`, `SEPOUT`, `SEPTOP` | Q 值和分离点间隙相关量 |
-| `SIBDRY`, `AREA` | 边界磁通和截面积 |
-| `WMHD` | MHD 能量 |
-| `ERROR` | EFIT 误差指标 |
-| `QM`, `CDFLUX`, `ALPHA`, `RTTT`, `PSIREF` | 平衡拟合或磁通相关量 |
-| `INDENT`, `DSEP`, `SEPEXP`, `SEPBOT` | 边界形状和分离点相关量 |
-| `BTAXP`, `BTAXV` | 磁轴场量 |
-| `AQ1`, `AQ2`, `AQ3` | 拟合系数 |
-| `RM`, `ZM`, `PSIM` | 磁面或测量点位置/磁通量 |
-| `TAUMHD`, `BETATD`, `WDIA`, `DIAMAG` | MHD、beta、能量和磁诊断量 |
-| `VLOOP`, `TAUDIA`, `QMERCI`, `TAVEM` | 回路电压、时间常数和诊断量 |
+| `TIME` | 平衡对应时间，单位 ms |
+| `JFLAG` | 错误标志；OMFIT 约定 `JFLAG=0` 表示错误 |
+| `LFLAG` | 错误标志；OMFIT 约定 `LFLAG>0` 表示错误 |
+| `LIMLOC` | 等离子体构型代码：`IN`、`OUT`、`TOP`、`BOT` 表示限制器构型，`SNT`、`SNB`、`DN`、`MAR` 表示不同偏滤器构型 |
+| `MCO2V` | 垂直 CO2 密度弦线数量 |
+| `MCO2R` | 径向 CO2 密度弦线数量 |
+| `QMFLAG` | 轴上 `q(0)` 标志；`FIX` 表示约束，`CLC` 表示浮动 |
+| `NLOLD`, `NLNEW` | 之前版本和当前版本的 `WRITE` 语句数量 |
+| `CHISQ` | 来自磁探针、磁通环、Rogowski 线圈和外部线圈的总拟合 χ² |
+| `RCENCM` | 真空场 `BCENTR` 对应的大半径，单位 cm |
+| `RCNTR` | 几何中心的大半径，单位 cm |
+| `ZCNTR` | 几何中心的 Z 坐标，单位 cm |
+| `BCENTR` | `RCENCM` 处的真空环向磁场，单位 T |
+| `IPMEAS` | 测得的等离子体环向电流，单位 A |
+| `IPMHD` | 拟合得到的等离子体环向电流，单位 A·turn |
+| `AMINOR` | 等离子体小半径，单位 cm |
+| `ELONG` | 等离子体边界拉长率 |
+| `ELONGM` | 磁轴处拉长率 |
+| `UTRI` | 上三角度 |
+| `LTRI` | 上三角度（OMFIT 的现有描述如此记录；具体上下定义依 EFIT 版本） |
+| `VOLUME` | 等离子体体积，单位 m³ |
+| `RCURRT` | 电流形心的大半径，单位 cm |
+| `ZCURRT` | 电流形心的 Z 坐标，单位 cm |
+| `QSTAR` | 等效安全因子 `q*` |
+| `Q95` | 归一化极向磁通 95% 处的 q 值 |
+| `BETAT` | 环向 beta，单位 % |
+| `BETAP` | 以依据安培定律定义的平均极向磁场 `BPOLAV` 归一化的极向 beta |
+| `BETAPD` | 抗磁极向 beta |
+| `LI` | 使用依据安培定律定义的平均极向磁场归一化的内部电感 |
+| `GAPIN` | 等离子体内侧间隙，单位 cm |
+| `GAPOUT` | 等离子体外侧间隙，单位 cm |
+| `GAPTOP` | 等离子体顶部间隙，单位 cm |
+| `GAPBOT` | 等离子体底部间隙，单位 cm |
+| `VERTN` | 当前电流中心处的真空场指数 |
+| `SHEAR` | 包含归一化极向磁通 95% 的位置处的磁剪切 |
+| `BPOLAV` | 依据安培定律定义的平均极向磁场，单位 T |
+| `S1`, `S2`, `S3` | Shafranov 边界线积分 |
+| `QOUT` | 等离子体边界处的 q 值 |
+| `SEPIN` | 外部第二分离面的内侧间隙，单位 cm |
+| `SEPOUT` | 外部第二分离面的外侧间隙，单位 cm |
+| `SEPTOP` | 外部第二分离面的顶部间隙，单位 cm |
+| `SIBDRY` | 等离子体边界处的极向磁通，单位 Wb/rad |
+| `AREA` | 等离子体截面积，单位 cm² |
+| `WMHD` | 等离子体储能，单位 J |
+| `ERROR` | 平衡收敛误差 |
+| `QM` | 轴上安全因子 `q(0)` |
+| `CDFLUX` | 计算得到的抗磁磁通，单位 V·s |
+| `ALPHA` | Shafranov 边界线积分参数 |
+| `RTTT` | Shafranov 边界线积分参数 |
+| `PSIREF` | 参考极向磁通，单位 V·s/rad |
+| `INDENT` | 等离子体边界凹陷量 |
+| `DSEP` | 偏滤器构型下为正的最小间隙；限制器构型下为负，绝对值表示到外部分离面的最小距离，单位 cm |
+| `SEPEXP` | 分离面径向扩展，单位 cm |
+| `SEPBOT` | 外部第二分离面的底部间隙，单位 cm |
+| `BTAXP` | 磁轴处的环向磁场，单位 T |
+| `BTAXV` | 磁轴处的真空环向磁场，单位 T |
+| `AQ1` | `q=1` 磁面的等效小半径，单位 cm；未找到时为 100 |
+| `AQ2` | `q=2` 磁面的等效小半径，单位 cm；未找到时为 100 |
+| `AQ3` | `q=3` 磁面的等效小半径，单位 cm；未找到时为 100 |
+| `RM` | 磁轴处的大半径，单位 cm |
+| `ZM` | 磁轴处的 Z 坐标，单位 cm |
+| `PSIM` | 磁轴处相关的边界极向磁通，单位 Wb/rad |
+| `TAUMHD` | 能量约束时间，单位 ms |
+| `BETATD` | 抗磁环向 beta，单位 % |
+| `WDIA` | 抗磁等离子体储能，单位 J |
+| `DIAMAG` | 抗磁量；OMFIT 未提供进一步描述 |
+| `VLOOP` | 测得的回路电压，单位 V |
+| `TAUDIA` | 抗磁能量约束时间，单位 ms |
+| `QMERCI` | Mercier 稳定性判据；当 `q(0) > QMERCI` 时表示稳定 |
+| `TAVEM` | 磁测量和 MSE 数据的平均时间，单位 ms |
 | `NSILOP0`, `MAGPRI0`, `NFCOIL0`, `NESUM0` | 后续诊断数组的数量控制字段 |
-| `RCO2V`, `DCO2V`, `RCO2R`, `DCO2R` | CO2/干涉测量弦线数据 |
-| `CSILOP`, `CMPR2`, `CCBRSP`, `ECCURT` | 线圈、电流和诊断数组 |
-| `PBINJ`, `RVSIN`, `ZVSIN`, `RVSOUT`, `ZVSOUT` | 注入和视线几何相关量 |
-| `VSURF`, `WPDOT`, `WBDOT`, `SLANTU`, `SLANTL` | 表面、功率和边界相关扩展 |
-| `ZUPERTS`, `CHIPRE`, `CJOR95`, `PP95` | EFIT 可选诊断扩展 |
-| `DRSEP`, `YYY2`, `XNNC`, `CPROF`, `ORING` | 版本相关可选扩展 |
-| `CJOR0`, `FEXPAN`, `QMIN`, `CHIMSE`, `SSI01`, `FEXPVS` | 电流、磁通和误差相关扩展 |
-| `SEPNOSE`, `SSI95`, `RHOQMIN`, `CJOR99`, `CJ1AVE` | 分离点、Q 和电流相关扩展 |
-| `RMIDIN`, `RMIDOUT`, `PSURFA`, `PEAK`, `DMINUX`, `DMINLX` | 中平面、压力和极值相关扩展 |
-| `DOLUBAF`, `DOLUBAFM`, `DILUDOM`, `DILUDOMM`, `RATSOL` | 版本相关边界/刮削层扩展 |
-| `RVSIU`, `ZVSIU`, `RVSID`, `ZVSID`, `RVSOU`, `ZVSOU`, `RVSOD`, `ZVSOD` |  |
-| `CONDNO`, `PSIN32`, `PSIN21`, `RQ32IN`, `RQ21TOP`, `CHILIBT` |  |
-| `LI3`, `XBETAPR`, `TFLUX`, `TCHIMLS`, `TWAGAP` |  |
+| `RCO2V` | 垂直 CO2 密度弦线的路径长度，单位 cm |
+| `DCO2V` | 垂直 CO2 弦线的线平均电子密度 |
+| `RCO2R` | 径向 CO2 密度弦线的路径长度，单位 cm |
+| `DCO2R` | 径向 CO2 弦线的线平均电子密度 |
+| `CSILOP` | 计算得到的磁通环信号，单位 Wb |
+| `CMPR2` | OMFIT 未提供描述的磁探针相关数组 |
+| `CCBRSP` | 计算得到的外部线圈电流，单位 A |
+| `ECCURT` | 测得的 E 线圈电流，单位 A |
+| `PBINJ` | 中性束注入功率，单位 W |
+| `RVSIN` | 真空室内侧命中点的大半径，单位 cm |
+| `ZVSIN` | 真空室内侧命中点的 Z 坐标，单位 cm |
+| `RVSOUT` | 真空室外侧命中点的大半径，单位 cm |
+| `ZVSOUT` | 真空室外侧命中点的 Z 坐标，单位 cm |
+| `VSURF` | 未计算，始终为零 |
+| `WPDOT` | 未计算，始终为零 |
+| `WBDOT` | 未计算，始终为零 |
+| `SLANTU` | 到外侧上部限制器的间隙，单位 cm |
+| `SLANTL` | 到外侧下部限制器的间隙，单位 cm |
+| `ZUPERTS` | OMFIT 未提供描述 |
+| `CHIPRE` | 压力约束的总 χ² |
+| `CJOR95` | 归一化极向磁通 95% 处的归一化磁面平均电流密度 |
+| `PP95` | 归一化极向磁通 95% 处的归一化 `P'(ψ)` |
+| `DRSEP` | 单零构型下到外部第二分离面的外侧径向距离，单位 cm；SNT 为正、SNB 为负，默认值 40 cm |
+| `YYY2` | Shafranov Y2 电流矩 |
+| `XNNC` | 垂直稳定性参数，即归一化到临界指数的真空场指数 |
+| `CPROF` | 电流剖面参数化参数 |
+| `ORING` | 等离子体与倾斜表面之间的间隙，单位 cm |
+| `CJOR0` | 归一化轴向磁面平均电流密度 |
+| `FEXPAN` | X 点处的磁通扩张 |
+| `QMIN` | 最小安全因子 `q_min` |
+| `CHIMSE` | MSE 的总 χ² |
+| `SSI01` | 归一化极向磁通 1% 处的磁剪切 |
+| `FEXPVS` | 外侧下部真空室命中点处的磁通扩张 |
+| `SEPNOSE` | X 点与 `ZNOSE` 处外部磁力线之间的径向距离，单位 cm |
+| `SSI95` | 归一化极向磁通 95% 处的磁剪切 |
+| `RHOQMIN` | `q_min` 处的归一化半径，即归一化体积的平方根 |
+| `CJOR99` | 归一化极向磁通 99% 处的归一化磁面平均电流密度 |
+| `CJ1AVE` | 等离子体外侧 5% 归一化极向磁通区域内的归一化平均电流密度 |
+| `RMIDIN` | Z=0 处的内侧大半径，单位 m |
+| `RMIDOUT` | Z=0 处的外侧大半径，单位 m |
+| `PSURFA` | 等离子体边界表面积，单位 m² |
+| `PEAK` | 中心压力与平均压力之比 |
+| `DMINUX` | 上 X 点到限制器表面的最小距离，单位 cm |
+| `DMINLX` | 下 X 点到限制器表面的最小距离，单位 cm |
+| `DOLUBAF` | 分离面外侧支腿到上挡板的距离，单位 cm |
+| `DOLUBAFM` | Rmax 处分离面到上挡板的距离，单位 cm |
+| `DILUDOM` | 分离面内侧支腿到上穹顶的距离，单位 cm |
+| `DILUDOMM` | Rmin 处分离面到上穹顶的距离，单位 cm |
+| `RATSOL` | Rmin 和 Rmax 处外部磁力线到分离面距离（1 cm）的比值 |
+| `RVSIU` | 上部真空室内侧打击点的大半径，单位 cm |
+| `ZVSIU` | 上部真空室内侧打击点的 Z 坐标，单位 cm |
+| `RVSID` | 下部真空室内侧打击点的大半径，单位 cm |
+| `ZVSID` | 下部真空室内侧打击点的 Z 坐标，单位 cm |
+| `RVSOU` | 上部真空室外侧打击点的大半径，单位 cm |
+| `ZVSOU` | 上部真空室外侧打击点的 Z 坐标，单位 cm |
+| `RVSOD` | 下部真空室外侧打击点的大半径，单位 cm |
+| `ZVSOD` | 下部真空室外侧打击点的 Z 坐标，单位 cm |
+| `CONDNO` | 条件数 |
+| `PSIN32` | `q=3/2` 磁面处的归一化极向磁通 |
+| `PSIN21` | `q=2` 磁面处的归一化极向磁通 |
+| `RQ32IN` | `q=3/2` 磁面的最小大半径，单位 cm |
+| `RQ21TOP` | `q=2` 磁面最大 Z 处的大半径，单位 cm |
+| `CHILIBT` | Li 光束的总 χ² |
+| `LI3` | IMAS 定义的 `li`：`2/R0/μ0²/Ip² * ∫(Bp² dV)` |
+| `XBETAPR` | OMFIT 未提供描述 |
+| `TFLUX` | OMFIT 未提供描述 |
+| `TCHIMLS` | OMFIT 未提供描述 |
+| `TWAGAP` | OMFIT 未提供描述 |
+
+OMFIT 的 `desc` 还列出 `BETAN` 和 `FLUXX`。其中 `BETAN` 是 OMFIT 读取后根据
+其它字段计算出的归一化 beta 派生量，不是 A-file 的固定原始记录；`FLUXX` 在该
+解析流程中也没有作为标准记录读取。eqmdsk 不执行这类额外分析，因此二者不属于
+当前公开字段。

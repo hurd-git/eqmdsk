@@ -38,18 +38,21 @@ print(kfile["IN1"]["XLIM"])
 ```
 
 G-file 没有足够的元数据来区分全部 COCOS 约定，因此检测通常会返回多个候选。可以
-在转换时显式给出来源，或者先从已检测候选中选择来源：
+从候选中选择一个来源，也可以在自动检测不可靠时显式给出来源进行强制转换：
 
 ```python
 print(gfile.cocos.candidates)
 converted = gfile.to_cocos(to_cocos=11, from_cocos=5, inplace=False)
 
-gfile.select_cocos(5)  # 之后可以省略 from_cocos
-gfile.to_cocos(11)
+gfile.select_cocos(5)  # 只选择来源，不改变 candidates 或文件字段
+gfile.select_cocos(6)  # 可以在当前 candidates 中重新选择
+gfile.to_cocos(11, from_cocos=6)
 ```
 
-`from_cocos=None` 时，`to_cocos()` 使用对象当前唯一或已显式选择的 COCOS；只有该
-来源仍不明确时才抛出 `CocosError`。原始检测结果保存在 `error.result` 中。参数名
+`select_cocos(source)` 只在 `source` 位于当前 `cocos.candidates` 时成功，并且只修改
+`cocos.selected`。`to_cocos()` 省略 `from_cocos` 时使用当前 `cocos.selected`；如果
+没有 selected，会抛出 `CocosError`。要绕过不可靠的自动检测，使用显式的
+`from_cocos`；它不要求出现在当前 candidates 中，但必须是受支持的 COCOS 编号。参数名
 使用 `from_cocos` 是因为 `from` 是 Python 保留关键字。
 
 ## 数组所有权

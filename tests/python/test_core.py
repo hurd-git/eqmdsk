@@ -109,5 +109,4 @@ def test_empty_cocos_result_preserves_no_match():
     assert result.candidates == []
     assert not result.has_match()
     assert not result.is_unique()
-    with pytest.raises(eqmdsk.CocosError):
-        _ = result.selected
+    assert result.selected is None

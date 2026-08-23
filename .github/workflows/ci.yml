@@ -210,6 +210,7 @@ jobs:
               "licenses/eigen/COPYING.MPL2",
               "licenses/pybind11/LICENSE",
               "pyproject.toml",
+              "python/eqmdsk/__init__.py",
               "python/eqmdsk/__init__.pyi",
               "python/eqmdsk/py.typed",
           )
@@ -255,6 +256,7 @@ jobs:
 
           package = Path(eqmdsk.__file__).parent
           assert eqmdsk.__version__ == "0.9.0"
+          assert (package / "__init__.py").is_file()
           assert (package / "__init__.pyi").is_file()
           assert (package / "py.typed").is_file()
           PY
