@@ -4,7 +4,7 @@
 
 ## Python 快速开始
 
-### 快速安装
+### 安装方法
 
 ```python
 pip install eqmdsk
