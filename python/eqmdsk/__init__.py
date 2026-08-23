@@ -774,7 +774,7 @@ class AFile(_PathFileMapping):
             >>> chord_lengths = a["RCO2V"]
             >>> a["BETAP"] = 0.25
             >>> a.header = a.header.replace("01-Jan-00", "02-Feb-00")
-            >>> a.footer = "producer-specific text\n"
+            >>> a.footer = "producer-specific text\\n"
             >>> a.save("a.modified")
 
         copy() deep-copies fields, arrays, header, footer, and path metadata.
