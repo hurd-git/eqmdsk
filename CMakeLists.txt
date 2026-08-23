@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.18)
 
-project(eqmdsk VERSION 0.9.0 LANGUAGES CXX)
+project(eqmdsk VERSION 0.9.2 LANGUAGES CXX)
 
 include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)

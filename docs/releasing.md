@@ -1,7 +1,6 @@
 # 发布准备
 
-当前阶段只维护本地 Git，不推送远程，也不立即发布 PyPI。未来发布应让 PyPI 版本、
-Git tag 和 GitHub Release 使用同一个语义版本，例如 `v0.9.0`。
+正式发布时应让 PyPI 版本、Git tag 和 GitHub Release 使用同一个语义版本。
 
 ## 本地检查
 
@@ -17,7 +16,7 @@ Git tag 和 GitHub Release 使用同一个语义版本，例如 `v0.9.0`。
 ```console
 uv build --wheel --sdist
 uv venv build/release-venv
-uv pip install --python build/release-venv/bin/python dist/eqmdsk-0.9.0-*.whl
+uv pip install --python build/release-venv/bin/python dist/eqmdsk*.whl
 build/release-venv/bin/python -c "import eqmdsk; print(eqmdsk.__version__)"
 ```
 

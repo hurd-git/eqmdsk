@@ -304,7 +304,7 @@ jobs:
         run: |
           python -m venv build/wheel-venv
           build/wheel-venv/bin/python -m pip install --upgrade dist/*.whl "pytest>=8" mypy
-          build/wheel-venv/bin/python -c "import eqmdsk; assert eqmdsk.__version__ == '0.9.0'"
+          build/wheel-venv/bin/python -c "import eqmdsk; assert eqmdsk.__version__ == '0.9.2'"
           build/wheel-venv/bin/python -m pytest tests/python
           build/wheel-venv/bin/python -m mypy --strict --python-version 3.12 tests/typing/check_usage.py
           build/wheel-venv/bin/python -m mypy.stubtest eqmdsk --allowlist tests/typing/stubtest_allowlist.txt
@@ -314,7 +314,7 @@ jobs:
         run: |
           mkdir -p build/sdist-source build/sdist-wheel
           tar -xzf dist/*.tar.gz -C build/sdist-source
-          python -m build --wheel --outdir build/sdist-wheel build/sdist-source/eqmdsk-0.9.0
+          python -m build --wheel --outdir build/sdist-wheel build/sdist-source/eqmdsk-0.9.2
           python -m venv build/sdist-wheel-venv
           build/sdist-wheel-venv/bin/python -m pip install --upgrade build/sdist-wheel/*.whl
           build/sdist-wheel-venv/bin/python - <<'PY'
@@ -322,7 +322,7 @@ jobs:
           import eqmdsk
 
           package = Path(eqmdsk.__file__).parent
-          assert eqmdsk.__version__ == "0.9.0"
+          assert eqmdsk.__version__ == "0.9.2"
           assert (package / "__init__.py").is_file()
           assert (package / "__init__.pyi").is_file()
           assert (package / "py.typed").is_file()
