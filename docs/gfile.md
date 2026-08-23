@@ -34,6 +34,29 @@ eqmdsk 只负责完整读取、规范写回和字段语义保持，不计算平�
 | 可选兼容保留值 | `UNPARSED_EXTENSION` |
 | 非法 | 不在以上列表中的 G-file 顶层字段，以及内部 header、raw、计数和布局对象 |
 
+### PCURRT 与 PCURRZ
+
+`PCURRT` 和 `PCURRZ` 都表示 IPLCOUT 扩展中的二维 R-Z 网格数据。它们不是 G-file
+正文中的带名字字段：EFIT 通常把这些数据作为经典主体后的连续数值记录写出，具体布局
+由 `IPLCOUT` 及其周围的记录结构决定。因此，不同程序可能为同一类物理数据使用不同
+的内存字段名。
+
+eqmdsk 根据扩展布局保留两个名称，而不是把它们当成无条件的字典别名：
+
+| `IPLCOUT` 模式 | eqmdsk 字段 | 数据布局 | OMFIT 常用名称 |
+| --- | --- | --- | --- |
+| `1` | `PCURRT` | 四个整数头（`IPLCOUT_NW`、`IPLCOUT_NH`、`IPLCOUT_ISHOT`、`IPLCOUT_ITIME`），随后是 `RGRID`、`ZGRID`、`IPLCOUT_PREFIX` 和 `(NH, NW)` 二维矩阵 | `PCURRT` |
+| `2` | `PCURRZ` | `(NH, NW)` 二维矩阵，随后是长度为 `NW` 的 `CJOR`、`R1SURF`、`R2SURF`、`VOLP`、`BPOLSS` | `PCURRT` |
+
+OMFIT 为了让上层分析代码使用统一名称，会把 `IPLCOUT=2` 布局中的二维数据也映射为
+`PCURRT`。这不是对 eqmdsk 文件的纠正，而是 OMFIT 的内部命名选择；OMFIT 不一定
+暴露 `IPLCOUT=1` 的四整数头、前缀数据或 `UNPARSED_EXTENSION`。eqmdsk 则保留布局
+区别，便于用户知道数据来自哪种扩展并按对应规则保存。
+
+因此，两个名称都可以是正确的程序接口名称，但在 eqmdsk 中应按 `IPLCOUT` 模式使用：
+`IPLCOUT=1` 使用 `PCURRT`，`IPLCOUT=2` 使用 `PCURRZ`。两者都必须具有 `(NH, NW)`
+形状；它们不会同时出现在同一个布局中。
+
 `AuxNamelist` 是 G-file 持有的一个实际 `Namelist` 实例，不是 G-file 数值字段，也
 不是额外的包装类。它包含动态的 `NamelistBlock`，其 block 名可以为 `OUT1`、`BASIS`、`CHIOUT`等。Python 侧 `type(g["AuxNamelist"]) is eqmdsk.Namelist`；C++ 侧
 `g.aux_namelist()` 返回 `eqmdsk::Namelist*`。
@@ -61,8 +84,9 @@ g.save("g.modified")
 字段集合移除。未知字段会抛出 `FieldError`。
 
 数组整体赋值只替换底层数组，长度和形状统一在 `save()` 时校验。`RBBBS`、`ZBBBS`、
-`RLIM`、`ZLIM` 的长度分别必须与 `NBBBS`、`LIMITR` 相等；`PSIRZ`、`PCURRT` 必须
-与 `(NH, NW)` 网格一致。`RGRID`、`ZGRID` 不能直接赋值，而是由 `RLEFT`、`RDIM`、
+`RLIM`、`ZLIM` 的长度分别必须与 `NBBBS`、`LIMITR` 相等；`PSIRZ` 以及当前
+`IPLCOUT` 模式对应的 `PCURRT` 或 `PCURRZ` 必须与 `(NH, NW)` 网格一致。`RGRID`、
+`ZGRID` 不能直接赋值，而是由 `RLEFT`、`RDIM`、
 `ZMID`、`ZDIM` 自动计算。
 
 扩展字段只保证读写语义，不自动参与 COCOS 转换。COCOS 使用方式如下：
@@ -189,8 +213,8 @@ G-file 的整数控制字段（如 `NW`、`NH`、`NBBBS`、`LIMITR`）不接受�
 | `IPLCOUT_ISHOT`, `IPLCOUT_ITIME` | IPLCOUT 对应的放电号和时间索引 |
 | `RGRID`, `ZGRID` | IPLCOUT 网格坐标 |
 | `IPLCOUT_PREFIX` | 无法进一步安全命名的 IPLCOUT 前缀数据 |
-| `PCURRT` | IPLCOUT 的 R-Z 网格环向电流密度数据 |
-| `PCURRZ` | IPLCOUT 模式扩展数据，具体含义依 EFIT 版本而定 |
+| `PCURRT` | `IPLCOUT=1` 布局中的二维 R-Z 网格数据；部分工具（包括 OMFIT）也用此名称统一表示 `IPLCOUT=2` 的同类数据 |
+| `PCURRZ` | `IPLCOUT=2` 布局中的二维 R-Z 网格数据；eqmdsk 使用此名称区分该布局，OMFIT 通常将其映射为 `PCURRT` |
 | `CJOR`, `R1SURF`, `R2SURF`, `VOLP`, `BPOLSS` | IPLCOUT 模式扩展量 |
 | `UNPARSED_EXTENSION` | 无法安全判断标准含义的数值扩展 |
 | `AuxNamelist` | G-file 尾部附加 namelist 的容器 |

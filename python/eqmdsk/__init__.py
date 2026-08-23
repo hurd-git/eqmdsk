@@ -455,6 +455,11 @@ class GFile(_PathFileMapping):
             IPLCOUT, IPLCOUT_NW, IPLCOUT_NH, IPLCOUT_ISHOT,
             IPLCOUT_ITIME, RGRID, ZGRID, IPLCOUT_PREFIX, PCURRT,
             PCURRZ, CJOR, R1SURF, R2SURF, VOLP, BPOLSS.
+            PCURRT and PCURRZ are layout-specific names for the same kind of
+            unnamed IPLCOUT R-Z grid record: PCURRT is used for IPLCOUT=1,
+            while PCURRZ is used for IPLCOUT=2. OMFIT commonly exposes both
+            layouts as PCURRT; this is an application-level naming difference,
+            not a file-format conversion. Both matrices have shape (NH, NW).
         Compatibility-preserved extension:
             UNPARSED_EXTENSION stores numerical extension data whose standard
             meaning cannot be identified safely.
@@ -488,7 +493,8 @@ class GFile(_PathFileMapping):
         Whole-array assignment replaces the C++ array. Length and shape checks
         are performed by save(), allowing related fields to be edited in any
         order. RBBBS and ZBBBS must have NBBBS elements; RLIM and ZLIM must
-        have LIMITR elements. PSIRZ and PCURRT must have shape (NH, NW).
+        have LIMITR elements. PSIRZ and the active IPLCOUT matrix (PCURRT for
+        mode 1 or PCURRZ for mode 2) must have shape (NH, NW).
         RGRID and ZGRID are read-only derived arrays calculated from RLEFT,
         RDIM, ZMID, ZDIM, NW, and NH.
 

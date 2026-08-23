@@ -1,5 +1,6 @@
 .venv/
 extern/
+backup_resources/
 build/
 dist/
 wheelhouse/
@@ -18,4 +19,3 @@ __pycache__/
 htmlcov/
 CMakeUserPresets.json
 compile_commands.json
-

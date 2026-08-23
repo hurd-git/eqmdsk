@@ -124,8 +124,10 @@ resize 后应重新获取 NumPy view。
 | `StringVector` | `list[str]` |
 
 数值数组是 C++ 存储的可写 view。直接修改 view 会修改对象；整体赋值会替换底层数组，
-长度和 `(NH, NW)` 形状等约束统一在 `save()` 时校验。`PCURRT`、`PSIRZ` 等二维字段
-不会被扁平化。
+长度和 `(NH, NW)` 形状等约束统一在 `save()` 时校验。`PSIRZ` 以及当前 `IPLCOUT`
+模式对应的 `PCURRT`/`PCURRZ` 等二维字段不会被扁平化。`IPLCOUT=1` 使用 `PCURRT`，
+`IPLCOUT=2` 使用 `PCURRZ`；OMFIT 为统一分析接口会把后者映射为 `PCURRT`，这只是
+程序侧命名差异。
 
 标准字段的类型在 C++ schema 中严格定义。实数字段接受 Python `int` 并自动转换为
 `double`；整数字段不接受浮点值。对于实数数组，`float64` 是标准类型，整数 NumPy

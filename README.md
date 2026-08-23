@@ -120,6 +120,13 @@ assert view.flags.c_contiguous and view.flags.writeable
 注释、原始空格和重复赋值历史不会逐字复制。保证的是解析、规范写出、重新解析后
 公开 keys、值、数组形状和类型语义一致。
 
+G-file 的 IPLCOUT 二维扩展在不同程序中可能使用不同的内存名称。eqmdsk 对
+`IPLCOUT=1` 使用 `PCURRT`，对 `IPLCOUT=2` 使用 `PCURRZ`；两者都是 `(NH, NW)`
+的二维 R-Z 网格数据，只是对应的后续记录布局不同。OMFIT 为统一分析接口会把两种布局
+都暴露为 `PCURRT`，因此在 OMFIT 中看到 eqmdsk 的 `PCURRZ` 变成 `PCURRT` 属于正常
+的程序侧命名差异，不代表文件数据被错误转换。详细布局和保存规则见
+[G-file 指南](docs/gfile.md)中的“PCURRT 与 PCURRZ”章节。
+
 更多内容参见[文档索引](docs/README.md)和[Python API 指南](docs/python-api.md)，
 以及 [G-file](docs/gfile.md)、[A-file](docs/afile.md)、[K-file](docs/kfile.md)、
 [S-file](docs/sfile.md) 独立指南。[兼容性契约](docs/compatibility.md)定义了精简

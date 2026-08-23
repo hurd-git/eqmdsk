@@ -31,3 +31,11 @@
 `IPLCOUT=1` 的 F/E coil 数量来自文件外部，不能从 G-file 猜测，因此前缀保留为
 `IPLCOUT_PREFIX`。其他无法确认含义的数值保留为 `UNPARSED_EXTENSION`，用户可查看、
 修改并写回，而不会被错误标记为某个物理量。
+
+`IPLCOUT` 的二维电流扩展存在两种常见布局。`IPLCOUT=1` 在四个整数头、`RGRID`、
+`ZGRID` 和前缀数据之后提供二维矩阵，eqmdsk 将其命名为 `PCURRT`；`IPLCOUT=2`
+直接提供二维矩阵，并在其后提供 `CJOR`、`R1SURF`、`R2SURF`、`VOLP`、`BPOLSS`，
+eqmdsk 将其命名为 `PCURRZ`。这两个名称都是程序对无字段名数值记录的语义投影，
+不是文件中实际写出的 Fortran 变量名。OMFIT 为了保持分析接口一致，将两种布局的二维
+数据都暴露为 `PCURRT`，所以从 eqmdsk 写出的 `PCURRZ` 在 OMFIT 中看到 `PCURRT`
+属于正常的跨库命名差异，不表示数据被错误转换。
