@@ -35,7 +35,7 @@ print(kfile["IN1"]["XLIM"])
 
 ### Cocos 转换
 
-G-file 没有足够的元数据来区分全部 COCOS 约定，因此检测通常会返回多个候选。可以使用 select_cocos 确定候选，并使用 to_cocos 进行转换。当显式指定`from_cocos`时，to_cocos 也可以进行强制转换：
+G-file 没有足够的元数据来区分全部 COCOS 约定，因此检测通常会返回多个候选。当需要转换到其它 cocos 时，可以使用 select_cocos 确定候选，并使用 to_cocos 进行转换。当显式指定`from_cocos`时，to_cocos 也可以进行强制转换：
 
 ```python
 print(gfile.cocos.candidates)
